@@ -1,0 +1,402 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Badge } from '@/components/ui/badge';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Separator } from '@/components/ui/separator';
+import {
+  ChartConfig,
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+} from '@/components/ui/chart';
+import { Area, AreaChart, Bar, BarChart, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Cell } from 'recharts';
+
+interface Trade {
+  id: number;
+  date: string;
+  underlying: string;
+  strike: number;
+  option_type: string;
+  quantity: number;
+  entry_price: number;
+  exit_price: number;
+  net_pnl: number;
+  setup_type: string | null;
+}
+
+interface DailySummary {
+  date: string;
+  total_trades: number;
+  winners: number;
+  losers: number;
+  win_rate: number;
+  net_pnl: number;
+  profit_factor: number;
+}
+
+interface Stats {
+  days_traded: number;
+  total_trades: number;
+  winners: number;
+  losers: number;
+  net_pnl: number;
+  commissions: number;
+  best_day: number;
+  worst_day: number;
+  avg_daily: number;
+  win_rate: string;
+}
+
+interface SetupPerf {
+  setup_type: string;
+  trade_count: number;
+  win_rate: number;
+  total_pnl: number;
+  avg_pnl: number;
+}
+
+interface EquityPoint {
+  date: string;
+  daily_pnl: number;
+  cumulative_pnl: number;
+}
+
+const equityChartConfig = {
+  cumulative_pnl: {
+    label: "Cumulative P/L",
+    color: "hsl(var(--chart-1))",
+  },
+} satisfies ChartConfig;
+
+const setupChartConfig = {
+  total_pnl: {
+    label: "Total P/L",
+    color: "hsl(var(--chart-2))",
+  },
+} satisfies ChartConfig;
+
+export default function Dashboard() {
+  const [trades, setTrades] = useState<Trade[]>([]);
+  const [summaries, setSummaries] = useState<DailySummary[]>([]);
+  const [stats, setStats] = useState<Stats | null>(null);
+  const [setups, setSetups] = useState<SetupPerf[]>([]);
+  const [equity, setEquity] = useState<EquityPoint[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function fetchData() {
+      try {
+        const [tradesRes, statsRes, setupsRes, equityRes] = await Promise.all([
+          fetch('/api/trades'),
+          fetch('/api/stats'),
+          fetch('/api/setups'),
+          fetch('/api/equity'),
+        ]);
+
+        const tradesData = await tradesRes.json();
+        const statsData = await statsRes.json();
+        const setupsData = await setupsRes.json();
+        const equityData = await equityRes.json();
+
+        setTrades(tradesData.trades || []);
+        setSummaries(tradesData.summaries || []);
+        setStats(statsData.stats);
+        setSetups(setupsData.setups || []);
+        setEquity(equityData.equity || []);
+      } catch (error) {
+        console.error('Error fetching data:', error);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchData();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-lg">Loading...</div>
+      </div>
+    );
+  }
+
+  const todayTrades = trades.filter(t => t.date === new Date().toISOString().split('T')[0]);
+  const todaySummary = summaries.find(s => s.date === new Date().toISOString().split('T')[0]);
+
+  return (
+    <div className="min-h-screen bg-background p-6">
+      <div className="max-w-7xl mx-auto space-y-6">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold">Trading Journal</h1>
+            <p className="text-muted-foreground">Track, analyze, improve</p>
+          </div>
+          <Badge variant={stats && stats.net_pnl >= 0 ? "default" : "destructive"} className="text-lg px-4 py-2">
+            {stats ? `$${stats.net_pnl.toFixed(2)}` : '$0.00'} (30d)
+          </Badge>
+        </div>
+
+        {/* Stats Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardDescription>Net P/L (30d)</CardDescription>
+              <CardTitle className={`text-2xl ${stats && stats.net_pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                ${stats?.net_pnl.toFixed(2) || '0.00'}
+              </CardTitle>
+            </CardHeader>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardDescription>Win Rate</CardDescription>
+              <CardTitle className="text-2xl">{stats?.win_rate || 0}%</CardTitle>
+            </CardHeader>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardDescription>Total Trades</CardDescription>
+              <CardTitle className="text-2xl">{stats?.total_trades || 0}</CardTitle>
+            </CardHeader>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardDescription>Avg Daily P/L</CardDescription>
+              <CardTitle className={`text-2xl ${stats && stats.avg_daily >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                ${stats?.avg_daily.toFixed(2) || '0.00'}
+              </CardTitle>
+            </CardHeader>
+          </Card>
+        </div>
+
+        {/* Main Content */}
+        <Tabs defaultValue="overview" className="space-y-4">
+          <TabsList>
+            <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="trades">Trades</TabsTrigger>
+            <TabsTrigger value="setups">Setups</TabsTrigger>
+            <TabsTrigger value="calendar">Calendar</TabsTrigger>
+          </TabsList>
+
+          {/* Overview Tab */}
+          <TabsContent value="overview" className="space-y-4">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {/* Equity Curve */}
+              <Card className="col-span-1 lg:col-span-2">
+                <CardHeader>
+                  <CardTitle>Equity Curve</CardTitle>
+                  <CardDescription>Cumulative P/L over time</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <ChartContainer config={equityChartConfig} className="h-[300px] w-full">
+                    <AreaChart data={equity} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="date" tickFormatter={(v) => v.slice(5)} />
+                      <YAxis tickFormatter={(v) => `$${v}`} />
+                      <ChartTooltip content={<ChartTooltipContent />} />
+                      <Area
+                        type="monotone"
+                        dataKey="cumulative_pnl"
+                        stroke="var(--color-cumulative_pnl)"
+                        fill="var(--color-cumulative_pnl)"
+                        fillOpacity={0.3}
+                      />
+                    </AreaChart>
+                  </ChartContainer>
+                </CardContent>
+              </Card>
+
+              {/* Today's Trades */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Today's Trades</CardTitle>
+                  <CardDescription>
+                    {todaySummary ? `${todaySummary.winners}W / ${todaySummary.losers}L • $${todaySummary.net_pnl.toFixed(2)}` : 'No trades today'}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {todayTrades.length > 0 ? (
+                    <div className="space-y-2">
+                      {todayTrades.map((trade) => (
+                        <div key={trade.id} className="flex justify-between items-center p-2 bg-muted rounded">
+                          <div>
+                            <span className="font-mono">${trade.strike} {trade.option_type}</span>
+                            {trade.setup_type && (
+                              <Badge variant="outline" className="ml-2 text-xs">{trade.setup_type}</Badge>
+                            )}
+                          </div>
+                          <span className={trade.net_pnl >= 0 ? 'text-green-600' : 'text-red-600'}>
+                            ${trade.net_pnl.toFixed(2)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-muted-foreground">No trades recorded today</p>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Setup Performance */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Setup Performance</CardTitle>
+                  <CardDescription>P/L by setup type</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {setups.length > 0 ? (
+                    <ChartContainer config={setupChartConfig} className="h-[200px] w-full">
+                      <BarChart data={setups} layout="vertical" margin={{ left: 80 }}>
+                        <XAxis type="number" tickFormatter={(v) => `$${v}`} />
+                        <YAxis type="category" dataKey="setup_type" />
+                        <ChartTooltip content={<ChartTooltipContent />} />
+                        <Bar dataKey="total_pnl" radius={4}>
+                          {setups.map((entry, index) => (
+                            <Cell 
+                              key={`cell-${index}`} 
+                              fill={entry.total_pnl >= 0 ? 'hsl(142, 76%, 36%)' : 'hsl(0, 84%, 60%)'} 
+                            />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ChartContainer>
+                  ) : (
+                    <p className="text-muted-foreground">Tag trades with setup types to see analytics</p>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          </TabsContent>
+
+          {/* Trades Tab */}
+          <TabsContent value="trades">
+            <Card>
+              <CardHeader>
+                <CardTitle>Recent Trades</CardTitle>
+                <CardDescription>Last 100 trades</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Date</TableHead>
+                      <TableHead>Contract</TableHead>
+                      <TableHead>Qty</TableHead>
+                      <TableHead>Entry</TableHead>
+                      <TableHead>Exit</TableHead>
+                      <TableHead>P/L</TableHead>
+                      <TableHead>Setup</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {trades.map((trade) => (
+                      <TableRow key={trade.id}>
+                        <TableCell>{trade.date}</TableCell>
+                        <TableCell className="font-mono">
+                          ${trade.strike} {trade.option_type}
+                        </TableCell>
+                        <TableCell>{trade.quantity}</TableCell>
+                        <TableCell>${trade.entry_price.toFixed(2)}</TableCell>
+                        <TableCell>${trade.exit_price.toFixed(2)}</TableCell>
+                        <TableCell className={trade.net_pnl >= 0 ? 'text-green-600' : 'text-red-600'}>
+                          ${trade.net_pnl.toFixed(2)}
+                        </TableCell>
+                        <TableCell>
+                          {trade.setup_type ? (
+                            <Badge variant="outline">{trade.setup_type}</Badge>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Setups Tab */}
+          <TabsContent value="setups">
+            <Card>
+              <CardHeader>
+                <CardTitle>Performance by Setup</CardTitle>
+                <CardDescription>Which setups are working for you?</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {setups.length > 0 ? (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Setup Type</TableHead>
+                        <TableHead className="text-right">Trades</TableHead>
+                        <TableHead className="text-right">Win Rate</TableHead>
+                        <TableHead className="text-right">Total P/L</TableHead>
+                        <TableHead className="text-right">Avg P/L</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {setups.map((setup) => (
+                        <TableRow key={setup.setup_type}>
+                          <TableCell className="font-medium">{setup.setup_type}</TableCell>
+                          <TableCell className="text-right">{setup.trade_count}</TableCell>
+                          <TableCell className="text-right">{setup.win_rate}%</TableCell>
+                          <TableCell className={`text-right ${setup.total_pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            ${setup.total_pnl.toFixed(2)}
+                          </TableCell>
+                          <TableCell className={`text-right ${setup.avg_pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            ${setup.avg_pnl.toFixed(2)}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                ) : (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <p>No setup data yet.</p>
+                    <p className="text-sm mt-2">Tag your trades using the CLI:</p>
+                    <code className="text-sm bg-muted px-2 py-1 rounded mt-2 inline-block">
+                      python src/journal.py setup &lt;trade_id&gt; &lt;setup_type&gt;
+                    </code>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Calendar Tab */}
+          <TabsContent value="calendar">
+            <Card>
+              <CardHeader>
+                <CardTitle>Daily Performance</CardTitle>
+                <CardDescription>P/L by day</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-7 gap-2">
+                  {summaries.slice(0, 30).reverse().map((day) => (
+                    <div
+                      key={day.date}
+                      className={`p-3 rounded-lg text-center ${
+                        day.net_pnl >= 0 ? 'bg-green-100 dark:bg-green-900/30' : 'bg-red-100 dark:bg-red-900/30'
+                      }`}
+                    >
+                      <div className="text-xs text-muted-foreground">{day.date.slice(5)}</div>
+                      <div className={`font-bold ${day.net_pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                        ${day.net_pnl.toFixed(0)}
+                      </div>
+                      <div className="text-xs">{day.winners}W/{day.losers}L</div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
+      </div>
+    </div>
+  );
+}
