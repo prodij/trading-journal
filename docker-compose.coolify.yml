@@ -1,0 +1,19 @@
+services:
+  trading-journal:
+    image: ghcr.io/prodij/trading-journal:latest
+    ports:
+      - "3000:3000"
+    volumes:
+      - journal-data:/app/data
+    environment:
+      - NODE_ENV=production
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  journal-data:
