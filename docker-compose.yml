@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  trading-journal:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    volumes:
+      # Persist the SQLite database
+      - ./data:/app/data
+    environment:
+      - NODE_ENV=production
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Optional: Python CLI for imports (run manually)
+  # docker-compose run --rm importer python src/journal.py import /data/trades.csv
+  importer:
+    image: python:3.12-slim
+    volumes:
+      - ./src:/app/src
+      - ./data:/app/data
+    working_dir: /app
+    profiles:
+      - tools
+    command: ["python", "src/journal.py", "--help"]

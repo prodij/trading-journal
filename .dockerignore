@@ -1,0 +1,33 @@
+# Dependencies
+node_modules
+frontend/node_modules
+.pnpm-store
+
+# Build outputs
+.next
+frontend/.next
+out
+dist
+
+# Development
+*.log
+.env*.local
+.DS_Store
+
+# Git
+.git
+.gitignore
+
+# IDE
+.idea
+.vscode
+*.swp
+
+# Data (mounted as volume)
+data/*.db
+data/*.db-journal
+
+# Misc
+README.md
+docs/
+*.md

@@ -1,7 +1,26 @@
 import Database from 'better-sqlite3';
 import path from 'path';
+import fs from 'fs';
 
-const DB_PATH = path.join(process.cwd(), '..', 'data', 'journal.db');
+// Support both local dev and Docker environments
+function getDbPath(): string {
+  const possiblePaths = [
+    path.join(process.cwd(), 'data', 'journal.db'),      // Docker: /app/data/journal.db
+    path.join(process.cwd(), '..', 'data', 'journal.db'), // Local dev: ../data/journal.db
+    '/app/data/journal.db',                               // Docker absolute
+  ];
+  
+  for (const p of possiblePaths) {
+    if (fs.existsSync(p)) {
+      return p;
+    }
+  }
+  
+  // Default to Docker path (will be created)
+  return possiblePaths[0];
+}
+
+const DB_PATH = getDbPath();
 
 let db: Database.Database | null = null;
 
