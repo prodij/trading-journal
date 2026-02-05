@@ -36,7 +36,7 @@ python src/journal.py equity                          # Equity curve
 
 ### Docker
 ```bash
-docker-compose up --build   # Full stack on http://localhost:3000
+docker-compose up --build   # Full stack on http://localhost:4000
 ```
 
 ## Key Files
