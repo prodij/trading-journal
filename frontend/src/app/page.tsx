@@ -88,6 +88,32 @@ interface LossesData {
   patterns: LossPatterns;
 }
 
+interface HourlyPerformance {
+  hour: number;
+  trade_count: number;
+  winners: number;
+  losers: number;
+  win_rate: number;
+  total_pnl: number;
+  avg_pnl: number;
+}
+
+interface SessionPerformance {
+  session: string;
+  trade_count: number;
+  winners: number;
+  losers: number;
+  win_rate: number;
+  total_pnl: number;
+  avg_pnl: number;
+}
+
+interface TimeData {
+  hourly: HourlyPerformance[];
+  sessions: SessionPerformance[];
+  insight: { hour: number; savedAmount: number } | null;
+}
+
 const equityChartConfig = {
   cumulative_pnl: {
     label: "Cumulative P/L",
@@ -102,6 +128,13 @@ const setupChartConfig = {
   },
 } satisfies ChartConfig;
 
+const hourlyChartConfig = {
+  total_pnl: {
+    label: "P/L",
+    color: "hsl(var(--chart-3))",
+  },
+} satisfies ChartConfig;
+
 export default function Dashboard() {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [summaries, setSummaries] = useState<DailySummary[]>([]);
@@ -109,17 +142,19 @@ export default function Dashboard() {
   const [setups, setSetups] = useState<SetupPerf[]>([]);
   const [equity, setEquity] = useState<EquityPoint[]>([]);
   const [lossesData, setLossesData] = useState<LossesData | null>(null);
+  const [timeData, setTimeData] = useState<TimeData | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function fetchData() {
       try {
-        const [tradesRes, statsRes, setupsRes, equityRes, lossesRes] = await Promise.all([
+        const [tradesRes, statsRes, setupsRes, equityRes, lossesRes, timeRes] = await Promise.all([
           fetch('/api/trades'),
           fetch('/api/stats'),
           fetch('/api/setups'),
           fetch('/api/equity'),
           fetch('/api/losses'),
+          fetch('/api/time-performance'),
         ]);
 
         const tradesData = await tradesRes.json();
@@ -127,6 +162,7 @@ export default function Dashboard() {
         const setupsData = await setupsRes.json();
         const equityData = await equityRes.json();
         const lossesJson = await lossesRes.json();
+        const timeJson = await timeRes.json();
 
         setTrades(tradesData.trades || []);
         setSummaries(tradesData.summaries || []);
@@ -134,6 +170,7 @@ export default function Dashboard() {
         setSetups(setupsData.setups || []);
         setEquity(equityData.equity || []);
         setLossesData(lossesJson);
+        setTimeData(timeJson);
       } catch (error) {
         console.error('Error fetching data:', error);
       } finally {
@@ -206,6 +243,7 @@ export default function Dashboard() {
           <TabsList>
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="losses">Losses</TabsTrigger>
+            <TabsTrigger value="time">Time</TabsTrigger>
             <TabsTrigger value="trades">Trades</TabsTrigger>
             <TabsTrigger value="setups">Setups</TabsTrigger>
             <TabsTrigger value="calendar">Calendar</TabsTrigger>
@@ -398,6 +436,90 @@ export default function Dashboard() {
                   </Table>
                 ) : (
                   <p className="text-muted-foreground text-center py-8">No losing trades found</p>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Time Tab */}
+          <TabsContent value="time" className="space-y-4">
+            {/* Insight Banner */}
+            {timeData?.insight && (
+              <Card className="border-amber-500 bg-amber-50 dark:bg-amber-950/20">
+                <CardContent className="pt-6">
+                  <p className="text-amber-800 dark:text-amber-200">
+                    If you stopped trading at {timeData.insight.hour}:00, you'd be{' '}
+                    <strong>${timeData.insight.savedAmount.toFixed(2)}</strong> more profitable.
+                  </p>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Session Breakdown Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {['open', 'midday', 'close'].map((sessionName) => {
+                const session = timeData?.sessions.find(s => s.session === sessionName);
+                const isProfit = session && session.total_pnl > 0;
+                const isLoss = session && session.total_pnl < 0;
+                return (
+                  <Card key={sessionName}>
+                    <CardHeader className="pb-2">
+                      <CardDescription className="flex items-center gap-2">
+                        {sessionName === 'open' && '🌅'}
+                        {sessionName === 'midday' && '🌤️'}
+                        {sessionName === 'close' && '🌆'}
+                        {sessionName.charAt(0).toUpperCase() + sessionName.slice(1)}
+                        <span className="text-xs text-muted-foreground">
+                          {sessionName === 'open' && '(9:30-11:00)'}
+                          {sessionName === 'midday' && '(11:00-2:00)'}
+                          {sessionName === 'close' && '(2:00-4:00)'}
+                        </span>
+                      </CardDescription>
+                      <CardTitle className={`text-2xl ${isProfit ? 'text-green-600' : isLoss ? 'text-red-600' : ''}`}>
+                        ${session?.total_pnl.toFixed(2) || '0.00'}
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-sm text-muted-foreground space-y-1">
+                        <p>Win Rate: {session?.win_rate || 0}%</p>
+                        <p>Trades: {session?.trade_count || 0}</p>
+                      </div>
+                      {isProfit && <Badge className="mt-2 bg-green-600">Your edge</Badge>}
+                      {isLoss && <Badge variant="destructive" className="mt-2">Stop trading</Badge>}
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+
+            {/* Hourly P/L Chart */}
+            <Card>
+              <CardHeader>
+                <CardTitle>P/L by Hour</CardTitle>
+                <CardDescription>When are you making and losing money?</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {timeData && timeData.hourly.length > 0 ? (
+                  <ChartContainer config={hourlyChartConfig} className="h-[300px] w-full">
+                    <BarChart data={timeData.hourly} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="hour" tickFormatter={(v) => `${v}:00`} />
+                      <YAxis tickFormatter={(v) => `$${v}`} />
+                      <ChartTooltip content={<ChartTooltipContent />} />
+                      <Bar dataKey="total_pnl" radius={4}>
+                        {timeData.hourly.map((entry, index) => (
+                          <Cell
+                            key={`cell-${index}`}
+                            fill={entry.total_pnl >= 0 ? 'hsl(142, 76%, 36%)' : 'hsl(0, 84%, 60%)'}
+                          />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ChartContainer>
+                ) : (
+                  <p className="text-muted-foreground text-center py-8">
+                    No hourly data available. Trades need entry_time to analyze.
+                  </p>
                 )}
               </CardContent>
             </Card>
