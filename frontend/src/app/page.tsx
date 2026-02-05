@@ -64,6 +64,30 @@ interface EquityPoint {
   cumulative_pnl: number;
 }
 
+interface LossDetail {
+  id: number;
+  date: string;
+  underlying: string;
+  entry_time: string | null;
+  hold_time_minutes: number | null;
+  net_pnl: number;
+  day_of_week: string;
+  entry_hour: number | null;
+}
+
+interface LossPatterns {
+  byHour: { hour: number; loss_count: number; total_loss: number }[];
+  byDay: { day_of_week: string; loss_count: number; total_loss: number }[];
+  holdTime: { category: string; avg_hold_time: number; trade_count: number }[];
+  worstHour: { hour: number; total_loss: number } | null;
+  worstDay: { day_of_week: string; total_loss: number } | null;
+}
+
+interface LossesData {
+  losses: LossDetail[];
+  patterns: LossPatterns;
+}
+
 const equityChartConfig = {
   cumulative_pnl: {
     label: "Cumulative P/L",
@@ -84,28 +108,32 @@ export default function Dashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [setups, setSetups] = useState<SetupPerf[]>([]);
   const [equity, setEquity] = useState<EquityPoint[]>([]);
+  const [lossesData, setLossesData] = useState<LossesData | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function fetchData() {
       try {
-        const [tradesRes, statsRes, setupsRes, equityRes] = await Promise.all([
+        const [tradesRes, statsRes, setupsRes, equityRes, lossesRes] = await Promise.all([
           fetch('/api/trades'),
           fetch('/api/stats'),
           fetch('/api/setups'),
           fetch('/api/equity'),
+          fetch('/api/losses'),
         ]);
 
         const tradesData = await tradesRes.json();
         const statsData = await statsRes.json();
         const setupsData = await setupsRes.json();
         const equityData = await equityRes.json();
+        const lossesJson = await lossesRes.json();
 
         setTrades(tradesData.trades || []);
         setSummaries(tradesData.summaries || []);
         setStats(statsData.stats);
         setSetups(setupsData.setups || []);
         setEquity(equityData.equity || []);
+        setLossesData(lossesJson);
       } catch (error) {
         console.error('Error fetching data:', error);
       } finally {
@@ -177,6 +205,7 @@ export default function Dashboard() {
         <Tabs defaultValue="overview" className="space-y-4">
           <TabsList>
             <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="losses">Losses</TabsTrigger>
             <TabsTrigger value="trades">Trades</TabsTrigger>
             <TabsTrigger value="setups">Setups</TabsTrigger>
             <TabsTrigger value="calendar">Calendar</TabsTrigger>
@@ -270,6 +299,108 @@ export default function Dashboard() {
                 </CardContent>
               </Card>
             </div>
+          </TabsContent>
+
+          {/* Losses Tab */}
+          <TabsContent value="losses" className="space-y-4">
+            {/* Pattern Detection Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardDescription>Worst Time</CardDescription>
+                  <CardTitle className="text-xl text-red-600">
+                    {lossesData?.patterns.worstHour
+                      ? `${lossesData.patterns.worstHour.hour}:00`
+                      : 'N/A'}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground">
+                    {lossesData?.patterns.worstHour
+                      ? `$${lossesData.patterns.worstHour.total_loss.toFixed(2)} total losses`
+                      : 'No time data available'}
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardDescription>Worst Day</CardDescription>
+                  <CardTitle className="text-xl text-red-600">
+                    {lossesData?.patterns.worstDay?.day_of_week || 'N/A'}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground">
+                    {lossesData?.patterns.worstDay
+                      ? `$${lossesData.patterns.worstDay.total_loss.toFixed(2)} total losses`
+                      : 'No day data available'}
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardDescription>Hold Time</CardDescription>
+                  <CardTitle className="text-xl">
+                    {lossesData?.patterns.holdTime.find(h => h.category === 'losers')?.avg_hold_time || 0} min
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground">
+                    Losers avg vs{' '}
+                    {lossesData?.patterns.holdTime.find(h => h.category === 'winners')?.avg_hold_time || 0} min winners
+                  </p>
+                  {lossesData?.patterns.holdTime &&
+                   (lossesData.patterns.holdTime.find(h => h.category === 'losers')?.avg_hold_time || 0) >
+                   (lossesData.patterns.holdTime.find(h => h.category === 'winners')?.avg_hold_time || 0) && (
+                    <Badge variant="destructive" className="mt-2">Holding losers too long</Badge>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Biggest Losers Table */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Biggest Losers</CardTitle>
+                <CardDescription>Your worst trades - find the patterns</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {lossesData && lossesData.losses.length > 0 ? (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Date</TableHead>
+                        <TableHead>Symbol</TableHead>
+                        <TableHead>Entry Time</TableHead>
+                        <TableHead>Hold Time</TableHead>
+                        <TableHead>Day</TableHead>
+                        <TableHead className="text-right">P/L</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {lossesData.losses.map((loss) => (
+                        <TableRow key={loss.id}>
+                          <TableCell>{loss.date}</TableCell>
+                          <TableCell className="font-medium">{loss.underlying}</TableCell>
+                          <TableCell>{loss.entry_time || '—'}</TableCell>
+                          <TableCell>
+                            {loss.hold_time_minutes ? `${loss.hold_time_minutes} min` : '—'}
+                          </TableCell>
+                          <TableCell>{loss.day_of_week}</TableCell>
+                          <TableCell className="text-right text-red-600 font-medium">
+                            ${loss.net_pnl.toFixed(2)}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                ) : (
+                  <p className="text-muted-foreground text-center py-8">No losing trades found</p>
+                )}
+              </CardContent>
+            </Card>
           </TabsContent>
 
           {/* Trades Tab */}
