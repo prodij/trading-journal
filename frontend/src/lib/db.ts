@@ -80,6 +80,65 @@ export interface EquityPoint {
   win_rate: number;
 }
 
+export interface LossDetail {
+  id: number;
+  date: string;
+  underlying: string;
+  entry_time: string | null;
+  exit_time: string | null;
+  hold_time_minutes: number | null;
+  net_pnl: number;
+  day_of_week: string;
+  day_of_week_num: number;
+  entry_hour: number | null;
+}
+
+export interface HourlyPerformance {
+  hour: number;
+  trade_count: number;
+  winners: number;
+  losers: number;
+  win_rate: number;
+  total_pnl: number;
+  avg_pnl: number;
+}
+
+export interface SessionPerformance {
+  session: 'open' | 'midday' | 'close';
+  trade_count: number;
+  winners: number;
+  losers: number;
+  win_rate: number;
+  total_pnl: number;
+  avg_pnl: number;
+}
+
+export interface UnderlyingPerformance {
+  underlying: string;
+  trade_count: number;
+  winners: number;
+  losers: number;
+  win_rate: number;
+  total_pnl: number;
+  avg_pnl: number;
+  largest_win: number;
+  largest_loss: number;
+}
+
+export interface LossPattern {
+  hour?: number;
+  day_of_week?: string;
+  day_of_week_num?: number;
+  loss_count: number;
+  total_loss: number;
+}
+
+export interface HoldTimeComparison {
+  category: 'winners' | 'losers';
+  avg_hold_time: number;
+  trade_count: number;
+}
+
 export function getTrades(date?: string): Trade[] {
   const db = getDb();
   if (date) {
@@ -162,7 +221,7 @@ export function getStats(days: number = 30) {
 export function getWeekdayPerformance() {
   const db = getDb();
   return db.prepare(`
-    SELECT 
+    SELECT
       CASE CAST(strftime('%w', date) AS INTEGER)
         WHEN 0 THEN 'Sunday'
         WHEN 1 THEN 'Monday'
@@ -181,4 +240,53 @@ export function getWeekdayPerformance() {
     GROUP BY weekday_num
     ORDER BY weekday_num
   `).all();
+}
+
+export function getBiggestLosses(limit: number = 20): LossDetail[] {
+  const db = getDb();
+  return db.prepare(`
+    SELECT * FROM v_losses_detail LIMIT ?
+  `).all(limit) as LossDetail[];
+}
+
+export function getHourlyPerformance(): HourlyPerformance[] {
+  const db = getDb();
+  return db.prepare(`
+    SELECT * FROM v_performance_by_hour
+  `).all() as HourlyPerformance[];
+}
+
+export function getSessionPerformance(): SessionPerformance[] {
+  const db = getDb();
+  return db.prepare(`
+    SELECT * FROM v_performance_by_session
+  `).all() as SessionPerformance[];
+}
+
+export function getUnderlyingPerformance(): UnderlyingPerformance[] {
+  const db = getDb();
+  return db.prepare(`
+    SELECT * FROM v_performance_by_underlying
+  `).all() as UnderlyingPerformance[];
+}
+
+export function getLossPatternsByHour(): LossPattern[] {
+  const db = getDb();
+  return db.prepare(`
+    SELECT * FROM v_loss_patterns_by_hour
+  `).all() as LossPattern[];
+}
+
+export function getLossPatternsByDay(): LossPattern[] {
+  const db = getDb();
+  return db.prepare(`
+    SELECT * FROM v_loss_patterns_by_day
+  `).all() as LossPattern[];
+}
+
+export function getHoldTimeComparison(): HoldTimeComparison[] {
+  const db = getDb();
+  return db.prepare(`
+    SELECT * FROM v_hold_time_comparison
+  `).all() as HoldTimeComparison[];
 }
