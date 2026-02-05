@@ -268,7 +268,7 @@ ORDER BY date;
 
 -- Mistake analysis
 CREATE VIEW IF NOT EXISTS v_mistakes AS
-SELECT 
+SELECT
     mistake_type,
     COUNT(*) as occurrence_count,
     ROUND(SUM(net_pnl), 2) as total_cost,
@@ -277,6 +277,120 @@ FROM round_trips
 WHERE mistake_type IS NOT NULL
 GROUP BY mistake_type
 ORDER BY total_cost ASC;
+
+-- Losses with time breakdown (for pattern detection)
+CREATE VIEW IF NOT EXISTS v_losses_detail AS
+SELECT
+  id,
+  date,
+  underlying,
+  entry_time,
+  exit_time,
+  hold_time_minutes,
+  net_pnl,
+  CASE CAST(strftime('%w', date) AS INTEGER)
+    WHEN 0 THEN 'Sunday'
+    WHEN 1 THEN 'Monday'
+    WHEN 2 THEN 'Tuesday'
+    WHEN 3 THEN 'Wednesday'
+    WHEN 4 THEN 'Thursday'
+    WHEN 5 THEN 'Friday'
+    WHEN 6 THEN 'Saturday'
+  END as day_of_week,
+  CAST(strftime('%w', date) AS INTEGER) as day_of_week_num,
+  CAST(strftime('%H', entry_time) AS INTEGER) as entry_hour
+FROM round_trips
+WHERE net_pnl < 0
+ORDER BY net_pnl ASC;
+
+-- Performance by hour of day
+CREATE VIEW IF NOT EXISTS v_performance_by_hour AS
+SELECT
+  CAST(strftime('%H', entry_time) AS INTEGER) as hour,
+  COUNT(*) as trade_count,
+  SUM(CASE WHEN net_pnl > 0 THEN 1 ELSE 0 END) as winners,
+  SUM(CASE WHEN net_pnl < 0 THEN 1 ELSE 0 END) as losers,
+  ROUND(SUM(CASE WHEN net_pnl > 0 THEN 1.0 ELSE 0 END) / COUNT(*) * 100, 1) as win_rate,
+  ROUND(SUM(net_pnl), 2) as total_pnl,
+  ROUND(AVG(net_pnl), 2) as avg_pnl
+FROM round_trips
+WHERE entry_time IS NOT NULL
+GROUP BY hour
+ORDER BY hour;
+
+-- Performance by trading session
+CREATE VIEW IF NOT EXISTS v_performance_by_session AS
+SELECT
+  CASE
+    WHEN CAST(strftime('%H', entry_time) AS INTEGER) < 11
+      OR (CAST(strftime('%H', entry_time) AS INTEGER) = 11 AND CAST(strftime('%M', entry_time) AS INTEGER) = 0)
+    THEN 'open'
+    WHEN CAST(strftime('%H', entry_time) AS INTEGER) < 14 THEN 'midday'
+    ELSE 'close'
+  END as session,
+  COUNT(*) as trade_count,
+  SUM(CASE WHEN net_pnl > 0 THEN 1 ELSE 0 END) as winners,
+  SUM(CASE WHEN net_pnl < 0 THEN 1 ELSE 0 END) as losers,
+  ROUND(SUM(CASE WHEN net_pnl > 0 THEN 1.0 ELSE 0 END) / COUNT(*) * 100, 1) as win_rate,
+  ROUND(SUM(net_pnl), 2) as total_pnl,
+  ROUND(AVG(net_pnl), 2) as avg_pnl
+FROM round_trips
+WHERE entry_time IS NOT NULL
+GROUP BY session;
+
+-- Performance by underlying symbol
+CREATE VIEW IF NOT EXISTS v_performance_by_underlying AS
+SELECT
+  underlying,
+  COUNT(*) as trade_count,
+  SUM(CASE WHEN net_pnl > 0 THEN 1 ELSE 0 END) as winners,
+  SUM(CASE WHEN net_pnl < 0 THEN 1 ELSE 0 END) as losers,
+  ROUND(SUM(CASE WHEN net_pnl > 0 THEN 1.0 ELSE 0 END) / COUNT(*) * 100, 1) as win_rate,
+  ROUND(SUM(net_pnl), 2) as total_pnl,
+  ROUND(AVG(net_pnl), 2) as avg_pnl,
+  ROUND(MAX(net_pnl), 2) as largest_win,
+  ROUND(MIN(net_pnl), 2) as largest_loss
+FROM round_trips
+GROUP BY underlying
+ORDER BY total_pnl DESC;
+
+-- Loss patterns aggregated by hour
+CREATE VIEW IF NOT EXISTS v_loss_patterns_by_hour AS
+SELECT
+  entry_hour as hour,
+  COUNT(*) as loss_count,
+  ROUND(SUM(net_pnl), 2) as total_loss
+FROM v_losses_detail
+WHERE entry_hour IS NOT NULL
+GROUP BY entry_hour
+ORDER BY total_loss ASC;
+
+-- Loss patterns aggregated by day of week
+CREATE VIEW IF NOT EXISTS v_loss_patterns_by_day AS
+SELECT
+  day_of_week,
+  day_of_week_num,
+  COUNT(*) as loss_count,
+  ROUND(SUM(net_pnl), 2) as total_loss
+FROM v_losses_detail
+GROUP BY day_of_week_num
+ORDER BY total_loss ASC;
+
+-- Hold time comparison: winners vs losers
+CREATE VIEW IF NOT EXISTS v_hold_time_comparison AS
+SELECT
+  'winners' as category,
+  ROUND(AVG(hold_time_minutes), 1) as avg_hold_time,
+  COUNT(*) as trade_count
+FROM round_trips
+WHERE net_pnl > 0 AND hold_time_minutes IS NOT NULL
+UNION ALL
+SELECT
+  'losers' as category,
+  ROUND(AVG(hold_time_minutes), 1) as avg_hold_time,
+  COUNT(*) as trade_count
+FROM round_trips
+WHERE net_pnl < 0 AND hold_time_minutes IS NOT NULL;
 
 -------------------------------------------------
 -- INDEXES
