@@ -114,6 +114,30 @@ interface TimeData {
   insight: { hour: number; savedAmount: number } | null;
 }
 
+interface UnderlyingPerformance {
+  underlying: string;
+  trade_count: number;
+  winners: number;
+  losers: number;
+  win_rate: number;
+  total_pnl: number;
+  avg_pnl: number;
+  largest_win: number;
+  largest_loss: number;
+}
+
+interface SymbolData {
+  symbols: UnderlyingPerformance[];
+  insights: {
+    bestSymbol: UnderlyingPerformance | null;
+    worstSymbol: UnderlyingPerformance | null;
+    profitableTotal: number;
+    unprofitableTotal: number;
+    focusOn: string[];
+    avoid: string[];
+  };
+}
+
 const equityChartConfig = {
   cumulative_pnl: {
     label: "Cumulative P/L",
@@ -135,6 +159,13 @@ const hourlyChartConfig = {
   },
 } satisfies ChartConfig;
 
+const symbolChartConfig = {
+  total_pnl: {
+    label: "Total P/L",
+    color: "hsl(var(--chart-4))",
+  },
+} satisfies ChartConfig;
+
 export default function Dashboard() {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [summaries, setSummaries] = useState<DailySummary[]>([]);
@@ -143,18 +174,20 @@ export default function Dashboard() {
   const [equity, setEquity] = useState<EquityPoint[]>([]);
   const [lossesData, setLossesData] = useState<LossesData | null>(null);
   const [timeData, setTimeData] = useState<TimeData | null>(null);
+  const [symbolData, setSymbolData] = useState<SymbolData | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function fetchData() {
       try {
-        const [tradesRes, statsRes, setupsRes, equityRes, lossesRes, timeRes] = await Promise.all([
+        const [tradesRes, statsRes, setupsRes, equityRes, lossesRes, timeRes, symbolRes] = await Promise.all([
           fetch('/api/trades'),
           fetch('/api/stats'),
           fetch('/api/setups'),
           fetch('/api/equity'),
           fetch('/api/losses'),
           fetch('/api/time-performance'),
+          fetch('/api/symbol-performance'),
         ]);
 
         const tradesData = await tradesRes.json();
@@ -171,6 +204,8 @@ export default function Dashboard() {
         setEquity(equityData.equity || []);
         setLossesData(lossesJson);
         setTimeData(timeJson);
+        const symbolJson = await symbolRes.json();
+        setSymbolData(symbolJson);
       } catch (error) {
         console.error('Error fetching data:', error);
       } finally {
@@ -244,6 +279,7 @@ export default function Dashboard() {
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="losses">Losses</TabsTrigger>
             <TabsTrigger value="time">Time</TabsTrigger>
+            <TabsTrigger value="symbols">Symbols</TabsTrigger>
             <TabsTrigger value="trades">Trades</TabsTrigger>
             <TabsTrigger value="setups">Setups</TabsTrigger>
             <TabsTrigger value="calendar">Calendar</TabsTrigger>
@@ -520,6 +556,156 @@ export default function Dashboard() {
                   <p className="text-muted-foreground text-center py-8">
                     No hourly data available. Trades need entry_time to analyze.
                   </p>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Symbols Tab */}
+          <TabsContent value="symbols" className="space-y-4">
+            {/* Recommendation Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardDescription>Best Symbol</CardDescription>
+                  <CardTitle className="text-xl text-green-600">
+                    {symbolData?.insights.bestSymbol?.underlying || 'N/A'}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {symbolData?.insights.bestSymbol && (
+                    <div className="text-sm text-muted-foreground space-y-1">
+                      <p>${symbolData.insights.bestSymbol.total_pnl.toFixed(2)} total</p>
+                      <p>{symbolData.insights.bestSymbol.trade_count} trades</p>
+                      <p>{symbolData.insights.bestSymbol.win_rate}% win rate</p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardDescription>Worst Symbol</CardDescription>
+                  <CardTitle className="text-xl text-red-600">
+                    {symbolData?.insights.worstSymbol?.underlying || 'N/A'}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {symbolData?.insights.worstSymbol && (
+                    <div className="text-sm text-muted-foreground space-y-1">
+                      <p>${symbolData.insights.worstSymbol.total_pnl.toFixed(2)} total</p>
+                      <p>{symbolData.insights.worstSymbol.trade_count} trades</p>
+                      <p>{symbolData.insights.worstSymbol.win_rate}% win rate</p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardDescription>Recommendation</CardDescription>
+                  <CardTitle className="text-lg">
+                    Focus: {symbolData?.insights.focusOn.join(', ') || 'N/A'}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground">
+                    Avoid: {symbolData?.insights.avoid.join(', ') || 'N/A'}
+                  </p>
+                  <Separator className="my-2" />
+                  <p className="text-sm">
+                    <span className="text-green-600">
+                      +${symbolData?.insights.profitableTotal.toFixed(2) || '0'}
+                    </span>
+                    {' vs '}
+                    <span className="text-red-600">
+                      ${symbolData?.insights.unprofitableTotal.toFixed(2) || '0'}
+                    </span>
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Symbol P/L Chart */}
+            <Card>
+              <CardHeader>
+                <CardTitle>P/L by Symbol</CardTitle>
+                <CardDescription>Which underlyings are you profitable on?</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {symbolData && symbolData.symbols.length > 0 ? (
+                  <ChartContainer config={symbolChartConfig} className="h-[300px] w-full">
+                    <BarChart
+                      data={symbolData.symbols}
+                      layout="horizontal"
+                      margin={{ top: 10, right: 30, left: 60, bottom: 0 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="underlying" />
+                      <YAxis tickFormatter={(v) => `$${v}`} />
+                      <ChartTooltip content={<ChartTooltipContent />} />
+                      <Bar dataKey="total_pnl" radius={4}>
+                        {symbolData.symbols.map((entry, index) => (
+                          <Cell
+                            key={`cell-${index}`}
+                            fill={entry.total_pnl >= 0 ? 'hsl(142, 76%, 36%)' : 'hsl(0, 84%, 60%)'}
+                          />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ChartContainer>
+                ) : (
+                  <p className="text-muted-foreground text-center py-8">No symbol data available</p>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Performance Table */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Performance by Symbol</CardTitle>
+                <CardDescription>Detailed breakdown by underlying</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {symbolData && symbolData.symbols.length > 0 ? (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Symbol</TableHead>
+                        <TableHead className="text-right">Trades</TableHead>
+                        <TableHead className="text-right">Winners</TableHead>
+                        <TableHead className="text-right">Win Rate</TableHead>
+                        <TableHead className="text-right">Total P/L</TableHead>
+                        <TableHead className="text-right">Avg P/L</TableHead>
+                        <TableHead className="text-right">Best</TableHead>
+                        <TableHead className="text-right">Worst</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {symbolData.symbols.map((symbol) => (
+                        <TableRow key={symbol.underlying}>
+                          <TableCell className="font-medium">{symbol.underlying}</TableCell>
+                          <TableCell className="text-right">{symbol.trade_count}</TableCell>
+                          <TableCell className="text-right">{symbol.winners}</TableCell>
+                          <TableCell className="text-right">{symbol.win_rate}%</TableCell>
+                          <TableCell className={`text-right font-medium ${symbol.total_pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            ${symbol.total_pnl.toFixed(2)}
+                          </TableCell>
+                          <TableCell className={`text-right ${symbol.avg_pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            ${symbol.avg_pnl.toFixed(2)}
+                          </TableCell>
+                          <TableCell className="text-right text-green-600">
+                            ${symbol.largest_win.toFixed(2)}
+                          </TableCell>
+                          <TableCell className="text-right text-red-600">
+                            ${symbol.largest_loss.toFixed(2)}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                ) : (
+                  <p className="text-muted-foreground text-center py-8">No symbol data available</p>
                 )}
               </CardContent>
             </Card>
