@@ -1,13 +1,19 @@
-# Build stage
-FROM node:24-alpine AS builder
+# Single-stage build to avoid native module issues
+FROM node:24-alpine
 
 WORKDIR /app
 
+ENV NODE_ENV=production
+
 # Install build dependencies for better-sqlite3
-RUN apk add --no-cache python3 make g++
+RUN apk add --no-cache python3 make g++ libstdc++
 
 # Install pnpm
 RUN corepack enable && corepack prepare pnpm@latest --activate
+
+# Create non-root user
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 nextjs
 
 # Copy package files
 COPY frontend/package.json frontend/pnpm-lock.yaml ./
@@ -15,31 +21,14 @@ COPY frontend/package.json frontend/pnpm-lock.yaml ./
 # Install dependencies
 RUN pnpm install --frozen-lockfile
 
+# Explicitly rebuild better-sqlite3 native module
+RUN cd node_modules/.pnpm/better-sqlite3@*/node_modules/better-sqlite3 && npm run build-release
+
 # Copy source
 COPY frontend/ .
 
 # Build
 RUN pnpm build
-
-# Production stage - use full node_modules instead of standalone
-FROM node:24-alpine AS runner
-
-WORKDIR /app
-
-ENV NODE_ENV=production
-
-# Install runtime dependencies for better-sqlite3
-RUN apk add --no-cache libstdc++
-
-# Create non-root user
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 nextjs
-
-# Copy everything needed to run
-COPY --from=builder /app/package.json ./
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/.next ./.next
-COPY --from=builder /app/public ./public
 
 # Create data directory
 RUN mkdir -p /app/data && chown -R nextjs:nodejs /app/data

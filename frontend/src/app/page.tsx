@@ -138,6 +138,29 @@ interface SymbolData {
   };
 }
 
+interface EdgeItem {
+  type: 'symbol' | 'time' | 'session' | 'day' | 'setup';
+  label: string;
+  totalPnl: number;
+  winRate: number;
+  tradeCount: number;
+  avgPnl: number;
+  edgeScore: number;
+}
+
+interface EdgeData {
+  edges: EdgeItem[];
+  totalEdgePnl: number;
+  recommendation: string;
+  details: {
+    profitableHours: HourlyPerformance[];
+    profitableSymbols: UnderlyingPerformance[];
+    profitableSetups: SetupPerf[];
+    profitableSessions: SessionPerformance[];
+    profitableDays: { weekday: string; total_pnl: number; win_rate: number; trade_count: number }[];
+  };
+}
+
 const equityChartConfig = {
   cumulative_pnl: {
     label: "Cumulative P/L",
@@ -175,12 +198,13 @@ export default function Dashboard() {
   const [lossesData, setLossesData] = useState<LossesData | null>(null);
   const [timeData, setTimeData] = useState<TimeData | null>(null);
   const [symbolData, setSymbolData] = useState<SymbolData | null>(null);
+  const [edgeData, setEdgeData] = useState<EdgeData | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function fetchData() {
       try {
-        const [tradesRes, statsRes, setupsRes, equityRes, lossesRes, timeRes, symbolRes] = await Promise.all([
+        const [tradesRes, statsRes, setupsRes, equityRes, lossesRes, timeRes, symbolRes, edgeRes] = await Promise.all([
           fetch('/api/trades'),
           fetch('/api/stats'),
           fetch('/api/setups'),
@@ -188,6 +212,7 @@ export default function Dashboard() {
           fetch('/api/losses'),
           fetch('/api/time-performance'),
           fetch('/api/symbol-performance'),
+          fetch('/api/edge'),
         ]);
 
         const tradesData = await tradesRes.json();
@@ -206,6 +231,8 @@ export default function Dashboard() {
         setTimeData(timeJson);
         const symbolJson = await symbolRes.json();
         setSymbolData(symbolJson);
+        const edgeJson = await edgeRes.json();
+        setEdgeData(edgeJson);
       } catch (error) {
         console.error('Error fetching data:', error);
       } finally {
@@ -277,6 +304,7 @@ export default function Dashboard() {
         <Tabs defaultValue="overview" className="space-y-4">
           <TabsList>
             <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="edge">Edge Finder</TabsTrigger>
             <TabsTrigger value="losses">Losses</TabsTrigger>
             <TabsTrigger value="time">Time</TabsTrigger>
             <TabsTrigger value="symbols">Symbols</TabsTrigger>
@@ -373,6 +401,219 @@ export default function Dashboard() {
                 </CardContent>
               </Card>
             </div>
+          </TabsContent>
+
+          {/* Edge Finder Tab */}
+          <TabsContent value="edge" className="space-y-4">
+            {/* Edge Summary Banner */}
+            {edgeData && edgeData.edges.length > 0 && (
+              <Card className="border-green-500 bg-green-50 dark:bg-green-950/20">
+                <CardContent className="pt-6">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-2xl">🎯</span>
+                    <h3 className="text-lg font-semibold text-green-800 dark:text-green-200">Your Trading Edge</h3>
+                  </div>
+                  <p className="text-green-700 dark:text-green-300">{edgeData.recommendation}</p>
+                  <p className="text-sm text-green-600 dark:text-green-400 mt-2">
+                    Total edge potential: <strong>${edgeData.totalEdgePnl.toFixed(2)}</strong>
+                  </p>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Top Edge Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {edgeData?.edges.slice(0, 3).map((edge, idx) => (
+                <Card key={edge.type + edge.label} className={idx === 0 ? 'border-green-500' : ''}>
+                  <CardHeader className="pb-2">
+                    <CardDescription className="flex items-center gap-2">
+                      {edge.type === 'symbol' && '📈'}
+                      {edge.type === 'time' && '⏰'}
+                      {edge.type === 'session' && '🌅'}
+                      {edge.type === 'day' && '📅'}
+                      {edge.type === 'setup' && '🎯'}
+                      Best {edge.type.charAt(0).toUpperCase() + edge.type.slice(1)}
+                      {idx === 0 && <Badge className="bg-green-600 ml-auto">Top Edge</Badge>}
+                    </CardDescription>
+                    <CardTitle className="text-xl text-green-600">{edge.label}</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-sm space-y-1">
+                      <p><span className="text-green-600 font-bold">${edge.totalPnl.toFixed(2)}</span> total P/L</p>
+                      <p><span className="font-medium">{edge.winRate}%</span> win rate</p>
+                      <p><span className="font-medium">${edge.avgPnl.toFixed(2)}</span> avg per trade</p>
+                      <p className="text-muted-foreground">{edge.tradeCount} trades</p>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+              {(!edgeData || edgeData.edges.length === 0) && (
+                <Card className="col-span-3">
+                  <CardContent className="pt-6 text-center text-muted-foreground">
+                    <p>No profitable patterns detected yet.</p>
+                    <p className="text-sm mt-2">Import your trade history to discover your edge.</p>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+
+            {/* Profitable Areas Breakdown */}
+            {edgeData && edgeData.edges.length > 0 && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {/* Profitable Hours */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">Profitable Hours</CardTitle>
+                    <CardDescription>Times when you make money</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {edgeData.details.profitableHours.length > 0 ? (
+                      <div className="space-y-2">
+                        {edgeData.details.profitableHours
+                          .sort((a, b) => b.total_pnl - a.total_pnl)
+                          .slice(0, 5)
+                          .map((hour) => (
+                            <div key={hour.hour} className="flex justify-between items-center p-2 bg-green-50 dark:bg-green-950/20 rounded">
+                              <span className="font-mono">{hour.hour}:00</span>
+                              <div className="text-right">
+                                <span className="text-green-600 font-medium">${hour.total_pnl.toFixed(2)}</span>
+                                <span className="text-muted-foreground text-sm ml-2">({hour.win_rate}%)</span>
+                              </div>
+                            </div>
+                          ))}
+                      </div>
+                    ) : (
+                      <p className="text-muted-foreground">No profitable hours yet</p>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* Profitable Symbols */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">Profitable Symbols</CardTitle>
+                    <CardDescription>Symbols where you have edge</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {edgeData.details.profitableSymbols.length > 0 ? (
+                      <div className="space-y-2">
+                        {edgeData.details.profitableSymbols
+                          .sort((a, b) => b.total_pnl - a.total_pnl)
+                          .slice(0, 5)
+                          .map((symbol) => (
+                            <div key={symbol.underlying} className="flex justify-between items-center p-2 bg-green-50 dark:bg-green-950/20 rounded">
+                              <span className="font-medium">{symbol.underlying}</span>
+                              <div className="text-right">
+                                <span className="text-green-600 font-medium">${symbol.total_pnl.toFixed(2)}</span>
+                                <span className="text-muted-foreground text-sm ml-2">({symbol.win_rate}%)</span>
+                              </div>
+                            </div>
+                          ))}
+                      </div>
+                    ) : (
+                      <p className="text-muted-foreground">No profitable symbols yet</p>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* Profitable Days */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">Profitable Days</CardTitle>
+                    <CardDescription>Days of the week that work for you</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {edgeData.details.profitableDays.length > 0 ? (
+                      <div className="space-y-2">
+                        {edgeData.details.profitableDays
+                          .sort((a, b) => b.total_pnl - a.total_pnl)
+                          .map((day) => (
+                            <div key={day.weekday} className="flex justify-between items-center p-2 bg-green-50 dark:bg-green-950/20 rounded">
+                              <span className="font-medium">{day.weekday}</span>
+                              <div className="text-right">
+                                <span className="text-green-600 font-medium">${day.total_pnl.toFixed(2)}</span>
+                                <span className="text-muted-foreground text-sm ml-2">({day.win_rate}%)</span>
+                              </div>
+                            </div>
+                          ))}
+                      </div>
+                    ) : (
+                      <p className="text-muted-foreground">No profitable days yet</p>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* Profitable Setups */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">Profitable Setups</CardTitle>
+                    <CardDescription>Setups that make you money</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {edgeData.details.profitableSetups.length > 0 ? (
+                      <div className="space-y-2">
+                        {edgeData.details.profitableSetups
+                          .sort((a, b) => b.total_pnl - a.total_pnl)
+                          .map((setup) => (
+                            <div key={setup.setup_type} className="flex justify-between items-center p-2 bg-green-50 dark:bg-green-950/20 rounded">
+                              <Badge variant="outline">{setup.setup_type}</Badge>
+                              <div className="text-right">
+                                <span className="text-green-600 font-medium">${setup.total_pnl.toFixed(2)}</span>
+                                <span className="text-muted-foreground text-sm ml-2">({setup.win_rate}%)</span>
+                              </div>
+                            </div>
+                          ))}
+                      </div>
+                    ) : (
+                      <div className="text-muted-foreground">
+                        <p>No setup data yet.</p>
+                        <p className="text-sm mt-2">Tag trades with setup types to track.</p>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+
+            {/* All Edges Table */}
+            {edgeData && edgeData.edges.length > 3 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>All Profitable Patterns</CardTitle>
+                  <CardDescription>Ranked by edge score (consistency + profitability)</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Rank</TableHead>
+                        <TableHead>Type</TableHead>
+                        <TableHead>Pattern</TableHead>
+                        <TableHead className="text-right">Win Rate</TableHead>
+                        <TableHead className="text-right">Avg P/L</TableHead>
+                        <TableHead className="text-right">Total P/L</TableHead>
+                        <TableHead className="text-right">Trades</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {edgeData.edges.map((edge, idx) => (
+                        <TableRow key={edge.type + edge.label}>
+                          <TableCell>
+                            {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx + 1}`}
+                          </TableCell>
+                          <TableCell className="capitalize">{edge.type}</TableCell>
+                          <TableCell className="font-medium">{edge.label}</TableCell>
+                          <TableCell className="text-right">{edge.winRate}%</TableCell>
+                          <TableCell className="text-right text-green-600">${edge.avgPnl.toFixed(2)}</TableCell>
+                          <TableCell className="text-right text-green-600 font-medium">${edge.totalPnl.toFixed(2)}</TableCell>
+                          <TableCell className="text-right">{edge.tradeCount}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+            )}
           </TabsContent>
 
           {/* Losses Tab */}
