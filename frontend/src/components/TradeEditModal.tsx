@@ -143,7 +143,7 @@ export function TradeEditModal({ tradeId, open, onClose, onSaved }: TradeEditMod
     ]);
 
     for (const [key, value] of Object.entries(form)) {
-      const original = (trade as Record<string, unknown>)[key];
+      const original = (trade as unknown as Record<string, unknown>)[key];
       const formVal = value === '' ? null : value;
 
       let finalVal: unknown = formVal;
