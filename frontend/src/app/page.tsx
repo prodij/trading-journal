@@ -13,6 +13,8 @@ import {
   ChartTooltipContent,
 } from '@/components/ui/chart';
 import { Area, AreaChart, Bar, BarChart, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Cell } from 'recharts';
+import { ImportButton } from '@/components/ImportButton';
+import { TradeEditModal } from '@/components/TradeEditModal';
 
 interface Trade {
   id: number;
@@ -200,46 +202,50 @@ export default function Dashboard() {
   const [symbolData, setSymbolData] = useState<SymbolData | null>(null);
   const [edgeData, setEdgeData] = useState<EdgeData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [editTradeId, setEditTradeId] = useState<number | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
+
+  async function refreshData() {
+    try {
+      const [tradesRes, statsRes, setupsRes, equityRes, lossesRes, timeRes, symbolRes, edgeRes] = await Promise.all([
+        fetch('/api/trades'),
+        fetch('/api/stats'),
+        fetch('/api/setups'),
+        fetch('/api/equity'),
+        fetch('/api/losses'),
+        fetch('/api/time-performance'),
+        fetch('/api/symbol-performance'),
+        fetch('/api/edge'),
+      ]);
+
+      const tradesData = await tradesRes.json();
+      const statsData = await statsRes.json();
+      const setupsData = await setupsRes.json();
+      const equityData = await equityRes.json();
+      const lossesJson = await lossesRes.json();
+      const timeJson = await timeRes.json();
+      const symbolJson = await symbolRes.json();
+      const edgeJson = await edgeRes.json();
+
+      setTrades(tradesData.trades || []);
+      setSummaries(tradesData.summaries || []);
+      setStats(statsData.stats);
+      setSetups(setupsData.setups || []);
+      setEquity(equityData.equity || []);
+      setLossesData(lossesJson);
+      setTimeData(timeJson);
+      setSymbolData(symbolJson);
+      setEdgeData(edgeJson);
+    } catch (error) {
+      console.error('Error fetching data:', error);
+    }
+  }
 
   useEffect(() => {
     async function fetchData() {
-      try {
-        const [tradesRes, statsRes, setupsRes, equityRes, lossesRes, timeRes, symbolRes, edgeRes] = await Promise.all([
-          fetch('/api/trades'),
-          fetch('/api/stats'),
-          fetch('/api/setups'),
-          fetch('/api/equity'),
-          fetch('/api/losses'),
-          fetch('/api/time-performance'),
-          fetch('/api/symbol-performance'),
-          fetch('/api/edge'),
-        ]);
-
-        const tradesData = await tradesRes.json();
-        const statsData = await statsRes.json();
-        const setupsData = await setupsRes.json();
-        const equityData = await equityRes.json();
-        const lossesJson = await lossesRes.json();
-        const timeJson = await timeRes.json();
-
-        setTrades(tradesData.trades || []);
-        setSummaries(tradesData.summaries || []);
-        setStats(statsData.stats);
-        setSetups(setupsData.setups || []);
-        setEquity(equityData.equity || []);
-        setLossesData(lossesJson);
-        setTimeData(timeJson);
-        const symbolJson = await symbolRes.json();
-        setSymbolData(symbolJson);
-        const edgeJson = await edgeRes.json();
-        setEdgeData(edgeJson);
-      } catch (error) {
-        console.error('Error fetching data:', error);
-      } finally {
-        setLoading(false);
-      }
+      await refreshData();
+      setLoading(false);
     }
-
     fetchData();
   }, []);
 
@@ -263,9 +269,12 @@ export default function Dashboard() {
             <h1 className="text-3xl font-bold">Trading Journal</h1>
             <p className="text-muted-foreground">Track, analyze, improve</p>
           </div>
-          <Badge variant={stats && stats.net_pnl >= 0 ? "default" : "destructive"} className="text-lg px-4 py-2">
-            {stats ? `$${stats.net_pnl.toFixed(2)}` : '$0.00'} (30d)
-          </Badge>
+          <div className="flex items-center gap-4">
+            <ImportButton onImportComplete={refreshData} />
+            <Badge variant={stats && stats.net_pnl >= 0 ? "default" : "destructive"} className="text-lg px-4 py-2">
+              {stats ? `$${stats.net_pnl.toFixed(2)}` : '$0.00'} (30d)
+            </Badge>
+          </div>
         </div>
 
         {/* Stats Cards */}
@@ -974,7 +983,7 @@ export default function Dashboard() {
                   </TableHeader>
                   <TableBody>
                     {trades.map((trade) => (
-                      <TableRow key={trade.id}>
+                      <TableRow key={trade.id} className="cursor-pointer hover:bg-muted/50" onClick={() => { setEditTradeId(trade.id); setEditOpen(true); }}>
                         <TableCell>{trade.date}</TableCell>
                         <TableCell className="font-mono">
                           ${trade.strike} {trade.option_type}
@@ -1076,6 +1085,12 @@ export default function Dashboard() {
             </Card>
           </TabsContent>
         </Tabs>
+        <TradeEditModal
+          tradeId={editTradeId}
+          open={editOpen}
+          onClose={() => { setEditOpen(false); setEditTradeId(null); }}
+          onSaved={refreshData}
+        />
       </div>
     </div>
   );
