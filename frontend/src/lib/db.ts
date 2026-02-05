@@ -31,6 +31,15 @@ export function getDb(): Database.Database {
   return db;
 }
 
+let writeDb: Database.Database | null = null;
+
+export function getWriteDb(): Database.Database {
+  if (!writeDb) {
+    writeDb = new Database(DB_PATH);
+  }
+  return writeDb;
+}
+
 export interface Trade {
   id: number;
   date: string;
@@ -45,6 +54,38 @@ export interface Trade {
   commission_total: number;
   setup_type: string | null;
   notes: string | null;
+}
+
+export interface TradeDetail {
+  id: number;
+  date: string;
+  underlying: string;
+  expiration: string | null;
+  strike: number | null;
+  option_type: string | null;
+  direction: string | null;
+  quantity: number;
+  entry_price: number;
+  exit_price: number;
+  entry_amount: number | null;
+  exit_amount: number | null;
+  gross_pnl: number;
+  net_pnl: number;
+  commission_total: number | null;
+  pnl_percent: number | null;
+  entry_time: string | null;
+  exit_time: string | null;
+  hold_time_minutes: number | null;
+  setup_type: string | null;
+  market_regime: string | null;
+  time_of_day: string | null;
+  conviction_level: number | null;
+  followed_plan: boolean | null;
+  mistake_type: string | null;
+  lesson: string | null;
+  grade: string | null;
+  notes: string | null;
+  tags: string | null;
 }
 
 export interface DailySummary {
@@ -289,4 +330,37 @@ export function getHoldTimeComparison(): HoldTimeComparison[] {
   return db.prepare(`
     SELECT * FROM v_hold_time_comparison
   `).all() as HoldTimeComparison[];
+}
+
+export function getTradeById(id: number): TradeDetail | undefined {
+  const db = getDb();
+  return db.prepare('SELECT * FROM round_trips WHERE id = ?').get(id) as TradeDetail | undefined;
+}
+
+const ALLOWED_FIELDS = new Set([
+  'date', 'underlying', 'expiration', 'strike', 'option_type', 'direction',
+  'quantity', 'entry_price', 'exit_price', 'entry_amount', 'exit_amount',
+  'gross_pnl', 'net_pnl', 'commission_total', 'pnl_percent',
+  'entry_time', 'exit_time', 'hold_time_minutes',
+  'setup_type', 'market_regime', 'time_of_day', 'conviction_level',
+  'followed_plan', 'mistake_type', 'lesson', 'grade', 'notes', 'tags',
+]);
+
+export function updateTrade(id: number, fields: Record<string, unknown>): TradeDetail | undefined {
+  const db = getWriteDb();
+
+  // Filter to allowed fields only
+  const entries = Object.entries(fields).filter(([key]) => ALLOWED_FIELDS.has(key));
+  if (entries.length === 0) return getTradeById(id);
+
+  const setClauses = entries.map(([key]) => `${key} = ?`);
+  setClauses.push('updated_at = CURRENT_TIMESTAMP');
+  const values = entries.map(([, value]) => value);
+
+  db.prepare(
+    `UPDATE round_trips SET ${setClauses.join(', ')} WHERE id = ?`
+  ).run(...values, id);
+
+  // Read back using write db (sees its own writes)
+  return db.prepare('SELECT * FROM round_trips WHERE id = ?').get(id) as TradeDetail | undefined;
 }
