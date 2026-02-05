@@ -21,7 +21,7 @@ COPY frontend/ .
 # Build
 RUN pnpm build
 
-# Production stage
+# Production stage - use full node_modules instead of standalone
 FROM node:24-alpine AS runner
 
 WORKDIR /app
@@ -35,9 +35,10 @@ RUN apk add --no-cache libstdc++
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
-# Copy standalone build
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
+# Copy everything needed to run
+COPY --from=builder /app/package.json ./
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/public ./public
 
 # Create data directory
@@ -53,4 +54,4 @@ EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
-CMD ["node", "server.js"]
+CMD ["node_modules/.bin/next", "start"]
