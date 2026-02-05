@@ -17,7 +17,7 @@ E*TRADE CSV → Python CLI → SQLite → Next.js API Routes → React Dashboard
 ```bash
 cd frontend
 pnpm install          # Install dependencies
-pnpm dev              # Dev server on http://localhost:3001
+pnpm dev -p 4000      # Dev server on http://localhost:4000
 pnpm build            # Production build
 pnpm lint             # ESLint
 ```
@@ -47,7 +47,7 @@ docker-compose up --build   # Full stack on http://localhost:3000
 | Database schema | `src/schema.sql` |
 | Dashboard UI | `frontend/src/app/page.tsx` |
 | Database queries | `frontend/src/lib/db.ts` |
-| API routes | `frontend/src/app/api/{trades,stats,setups,equity,health}/route.ts` |
+| API routes | `frontend/src/app/api/{trades,stats,setups,equity,losses,time-performance,symbol-performance}/route.ts` |
 
 ## Data Flow
 
@@ -63,7 +63,7 @@ SQLite at `data/journal.db`. Key tables:
 - `round_trips` - Matched trades with P/L and metadata (setup_type, notes, etc.)
 - `daily_summary` - Aggregated daily statistics
 
-Pre-calculated views: `v_performance_by_setup`, `v_performance_by_time`, `v_performance_by_regime`, `v_performance_by_weekday`, `v_equity_curve`, `v_mistakes`
+Pre-calculated views: `v_performance_by_setup`, `v_performance_by_time`, `v_performance_by_regime`, `v_performance_by_weekday`, `v_equity_curve`, `v_mistakes`, `v_losses_detail`, `v_performance_by_hour`, `v_performance_by_session`, `v_performance_by_underlying`, `v_loss_patterns_by_hour`, `v_loss_patterns_by_day`, `v_hold_time_comparison`
 
 ## Tech Stack
 
