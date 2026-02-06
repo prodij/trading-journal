@@ -1,15 +1,24 @@
 import { Hono } from 'hono';
-import { getTrades, getDailySummaries, getTradeById, updateTrade } from '../lib/queries';
+import { getTrades, getDailySummaries, getTradeById, updateTrade, getDistinctUnderlyings } from '../lib/queries';
 
 const route = new Hono();
 
-// GET / — list trades with optional ?date= filter
+// GET / — list trades with pagination and filters
 route.get('/', (c) => {
   try {
-    const date = c.req.query('date') || undefined;
-    const trades = getTrades(date);
+    const dateFrom = c.req.query('dateFrom') || undefined;
+    const dateTo = c.req.query('dateTo') || undefined;
+    const underlying = c.req.query('underlying') || undefined;
+    const page = Math.max(1, parseInt(c.req.query('page') || '1', 10));
+    const limit = Math.min(100, Math.max(1, parseInt(c.req.query('limit') || '20', 10)));
+    const offset = (page - 1) * limit;
+
+    const { trades, total } = getTrades({ dateFrom, dateTo, underlying, limit, offset });
+    const totalPages = Math.ceil(total / limit);
     const summaries = getDailySummaries(30);
-    return c.json({ trades, summaries });
+    const underlyings = getDistinctUnderlyings();
+
+    return c.json({ trades, summaries, total, page, totalPages, underlyings });
   } catch (error) {
     console.error('Error fetching trades:', error);
     return c.json({ error: 'Failed to fetch trades' }, 500);

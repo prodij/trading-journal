@@ -154,16 +154,50 @@ export interface WinPattern {
 
 // ── Query functions ─────────────────────────────────────────────────────────
 
-export function getTrades(date?: string): Trade[] {
+export function getTrades(opts: {
+  dateFrom?: string;
+  dateTo?: string;
+  underlying?: string;
+  limit?: number;
+  offset?: number;
+} = {}): { trades: Trade[]; total: number } {
   const db = getDb();
-  if (date) {
-    return db.query(`
-      SELECT * FROM round_trips WHERE date = ? ORDER BY id
-    `).all(date) as Trade[];
+  const { dateFrom, dateTo, underlying, limit = 20, offset = 0 } = opts;
+
+  const conditions: string[] = [];
+  const params: (string | number)[] = [];
+
+  if (dateFrom) {
+    conditions.push('date >= ?');
+    params.push(dateFrom);
   }
-  return db.query(`
-    SELECT * FROM round_trips ORDER BY date DESC, id DESC LIMIT 100
-  `).all() as Trade[];
+  if (dateTo) {
+    conditions.push('date <= ?');
+    params.push(dateTo);
+  }
+  if (underlying) {
+    conditions.push('underlying = ?');
+    params.push(underlying);
+  }
+
+  const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+  const countRow = db.query(`SELECT COUNT(*) as cnt FROM round_trips ${where}`).get(...params) as { cnt: number };
+  const total = countRow.cnt;
+
+  const trades = db.query(
+    `SELECT * FROM round_trips ${where} ORDER BY date DESC, id DESC LIMIT ? OFFSET ?`
+  ).all(...params, limit, offset) as Trade[];
+
+  return { trades, total };
+}
+
+export function getDistinctUnderlyings(): string[] {
+  const db = getDb();
+  const rows = db.query(
+    'SELECT DISTINCT underlying FROM round_trips ORDER BY underlying'
+  ).all() as { underlying: string }[];
+  return rows.map(r => r.underlying);
 }
 
 export function getDailySummaries(days: number = 30): DailySummary[] {

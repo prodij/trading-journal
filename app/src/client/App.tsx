@@ -16,7 +16,12 @@ import { PasteImportDialog } from '@/components/PasteImportDialog';
 import { TradeEditModal } from '@/components/TradeEditModal';
 import TimeBanner from '@/components/TimeBanner';
 import { useTheme } from '@/hooks/useTheme';
-import { Moon, Sun, Monitor } from 'lucide-react';
+import { Moon, Sun, Monitor, CalendarIcon, X } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar } from '@/components/ui/calendar';
+import { format } from 'date-fns';
+import type { DateRange } from 'react-day-picker';
 
 interface Trade {
   id: number;
@@ -249,12 +254,40 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [editTradeId, setEditTradeId] = useState<number | null>(null);
   const [editOpen, setEditOpen] = useState(false);
+  const [tradesPage, setTradesPage] = useState(1);
+  const [tradesTotalPages, setTradesTotalPages] = useState(1);
+  const [tradesTotal, setTradesTotal] = useState(0);
+  const [dateRange, setDateRange] = useState<DateRange | undefined>();
+  const [tickerFilter, setTickerFilter] = useState('');
+  const [underlyings, setUnderlyings] = useState<string[]>([]);
   const { theme, toggle: toggleTheme } = useTheme();
+
+  const fetchTrades = useCallback(async (page = 1, range?: DateRange, underlying = '') => {
+    try {
+      const params = new URLSearchParams();
+      params.set('page', String(page));
+      params.set('limit', '20');
+      if (range?.from) params.set('dateFrom', format(range.from, 'yyyy-MM-dd'));
+      if (range?.to) params.set('dateTo', format(range.to, 'yyyy-MM-dd'));
+      if (underlying) params.set('underlying', underlying);
+
+      const res = await fetch(`/api/trades?${params}`);
+      const data = await res.json();
+      setTrades(data.trades || []);
+      setSummaries(data.summaries || []);
+      setTradesPage(data.page || 1);
+      setTradesTotalPages(data.totalPages || 1);
+      setTradesTotal(data.total || 0);
+      setUnderlyings(data.underlyings || []);
+    } catch (error) {
+      console.error('Error fetching trades:', error);
+    }
+  }, []);
 
   async function refreshData() {
     try {
-      const [tradesRes, statsRes, setupsRes, equityRes, lossesRes, winsRes, timeRes, symbolRes, edgeRes] = await Promise.all([
-        fetch('/api/trades'),
+      const [, statsRes, setupsRes, equityRes, lossesRes, winsRes, timeRes, symbolRes, edgeRes] = await Promise.all([
+        fetchTrades(tradesPage, dateRange, tickerFilter),
         fetch('/api/stats'),
         fetch('/api/setups'),
         fetch('/api/equity'),
@@ -265,7 +298,6 @@ export default function App() {
         fetch('/api/edge'),
       ]);
 
-      const tradesData = await tradesRes.json();
       const statsData = await statsRes.json();
       const setupsData = await setupsRes.json();
       const equityData = await equityRes.json();
@@ -275,8 +307,6 @@ export default function App() {
       const symbolJson = await symbolRes.json();
       const edgeJson = await edgeRes.json();
 
-      setTrades(tradesData.trades || []);
-      setSummaries(tradesData.summaries || []);
       setStats(statsData.stats);
       setSetups(setupsData.setups || []);
       setEquity(equityData.equity || []);
@@ -1120,14 +1150,82 @@ export default function App() {
             <TabsContent value="trades">
               <Card>
                 <CardHeader>
-                  <CardTitle>Recent Trades</CardTitle>
-                  <CardDescription>Last 100 trades</CardDescription>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle>Trades</CardTitle>
+                      <CardDescription>{tradesTotal} total trades</CardDescription>
+                    </div>
+                  </div>
+                  {/* Filter Bar */}
+                  <div className="flex items-center gap-3 pt-2">
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button variant="outline" size="sm" className="h-8 justify-start text-left font-normal min-w-[220px]">
+                          <CalendarIcon className="size-3.5 text-muted-foreground" />
+                          {dateRange?.from ? (
+                            dateRange.to ? (
+                              <span className="text-sm">
+                                {format(dateRange.from, 'MMM d')} – {format(dateRange.to, 'MMM d, yyyy')}
+                              </span>
+                            ) : (
+                              <span className="text-sm">{format(dateRange.from, 'MMM d, yyyy')}</span>
+                            )
+                          ) : (
+                            <span className="text-sm text-muted-foreground">Date range</span>
+                          )}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar
+                          mode="range"
+                          selected={dateRange}
+                          onSelect={(range) => {
+                            setDateRange(range);
+                            setTradesPage(1);
+                            fetchTrades(1, range, tickerFilter);
+                          }}
+                          numberOfMonths={2}
+                        />
+                      </PopoverContent>
+                    </Popover>
+                    <select
+                      value={tickerFilter}
+                      onChange={(e) => {
+                        setTickerFilter(e.target.value);
+                        setTradesPage(1);
+                        fetchTrades(1, dateRange, e.target.value);
+                      }}
+                      className="h-8 rounded-md border border-border bg-background px-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                    >
+                      <option value="">All Tickers</option>
+                      {underlyings.map((u) => (
+                        <option key={u} value={u}>{u}</option>
+                      ))}
+                    </select>
+                    {(dateRange || tickerFilter) && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 px-2"
+                        onClick={() => {
+                          setDateRange(undefined);
+                          setTickerFilter('');
+                          setTradesPage(1);
+                          fetchTrades(1, undefined, '');
+                        }}
+                      >
+                        <X className="size-3.5" />
+                        Clear
+                      </Button>
+                    )}
+                  </div>
                 </CardHeader>
                 <CardContent>
                   <Table>
                     <TableHeader>
                       <TableRow>
                         <TableHead>Date</TableHead>
+                        <TableHead>Ticker</TableHead>
                         <TableHead>Time</TableHead>
                         <TableHead>Contract</TableHead>
                         <TableHead>Qty</TableHead>
@@ -1141,6 +1239,7 @@ export default function App() {
                       {trades.map((trade) => (
                         <TableRow key={trade.id} className="cursor-pointer hover:bg-muted/50" onClick={() => { setEditTradeId(trade.id); setEditOpen(true); }}>
                           <TableCell>{trade.date}</TableCell>
+                          <TableCell className="font-medium">{trade.underlying}</TableCell>
                           <TableCell className="text-muted-foreground text-xs font-mono">
                             {trade.entry_time ? formatEstToPst(trade.entry_time) : '\u2014'}
                           </TableCell>
@@ -1163,7 +1262,7 @@ export default function App() {
                                   headers: { 'Content-Type': 'application/json' },
                                   body: JSON.stringify({ fields: { setup_type: value } }),
                                 });
-                                refreshData();
+                                fetchTrades(tradesPage, dateRange, tickerFilter);
                               }}
                               className="h-7 rounded-md border border-border bg-background px-1.5 text-xs cursor-pointer hover:border-foreground/30 focus:outline-none focus:ring-1 focus:ring-ring"
                             >
@@ -1177,6 +1276,38 @@ export default function App() {
                       ))}
                     </TableBody>
                   </Table>
+                  {/* Pagination */}
+                  {tradesTotalPages > 1 && (
+                    <div className="flex items-center justify-between pt-4">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={tradesPage <= 1}
+                        onClick={() => {
+                          const p = tradesPage - 1;
+                          setTradesPage(p);
+                          fetchTrades(p, dateRange, tickerFilter);
+                        }}
+                      >
+                        Previous
+                      </Button>
+                      <span className="text-sm text-muted-foreground">
+                        Page {tradesPage} of {tradesTotalPages}
+                      </span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={tradesPage >= tradesTotalPages}
+                        onClick={() => {
+                          const p = tradesPage + 1;
+                          setTradesPage(p);
+                          fetchTrades(p, dateRange, tickerFilter);
+                        }}
+                      >
+                        Next
+                      </Button>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </TabsContent>
