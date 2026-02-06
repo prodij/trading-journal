@@ -1,6 +1,9 @@
 # Data
-data/*.db
-data/*.db-journal
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
 *.sqlite
 *.sqlite3
 
@@ -27,6 +30,10 @@ dist/
 # OS
 .DS_Store
 Thumbs.db
+
+# Screenshots
+*.png
+*.jpeg
 
 # Env
 .env

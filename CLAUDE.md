@@ -4,35 +4,27 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Trading journal application for tracking, analyzing, and improving trading performance. Combines a Python CLI backend for data import/processing with a Next.js dashboard for visualization.
+Trading journal application for tracking, analyzing, and improving trading performance. Bun + Hono backend with Vite + React frontend, SQLite database.
 
 **Architecture:**
 ```
-E*TRADE CSV → Python CLI → SQLite → Next.js API Routes → React Dashboard
+E*TRADE CSV → Hono API (Bun) → bun:sqlite → SQLite
+                                    ↓
+                        Vite + React + shadcn/ui Dashboard
 ```
 
 ## Development Commands
 
-### Frontend (Next.js)
 ```bash
-cd frontend
-pnpm install          # Install dependencies
-pnpm dev -p 4000      # Dev server on http://localhost:4000
-pnpm build            # Production build
-pnpm lint             # ESLint
+cd app
+bun install              # Install dependencies
+bun run dev              # Vite dev server on http://localhost:4000
+bun run dev:server       # Hono API server on http://localhost:3000
+bun run build            # Production build (Vite)
+bun run start            # Production server
 ```
 
-### Backend (Python CLI)
-```bash
-python src/journal.py import ~/Downloads/etrade.csv   # Import trades
-python src/journal.py today                           # Today's trades
-python src/journal.py stats [days]                    # N-day stats (default 7)
-python src/journal.py setup <trade_id> <type>         # Tag trade setup
-python src/journal.py note <trade_id> "note"          # Add note
-python src/journal.py setups                          # Setup performance
-python src/journal.py weekdays                        # Weekday performance
-python src/journal.py equity                          # Equity curve
-```
+Run both dev and dev:server together for local development. Vite proxies /api/* to the Hono server.
 
 ### Docker
 ```bash
@@ -43,41 +35,43 @@ docker-compose up --build   # Full stack on http://localhost:4000
 
 | Purpose | Path |
 |---------|------|
-| CLI entry point | `src/journal.py` |
-| Database schema | `src/schema.sql` |
-| Dashboard UI | `frontend/src/app/page.tsx` |
-| Database queries | `frontend/src/lib/db.ts` |
-| API routes | `frontend/src/app/api/{trades,stats,setups,equity,losses,time-performance,symbol-performance}/route.ts` |
+| Hono server entry | `app/src/server/index.ts` |
+| Database layer | `app/src/server/db.ts` |
+| Database schema | `app/schema.sql` |
+| CSV import logic | `app/src/server/lib/import.ts` |
+| DB query functions | `app/src/server/lib/queries.ts` |
+| API routes | `app/src/server/routes/*.ts` |
+| Dashboard UI | `app/src/client/App.tsx` |
+| UI components | `app/src/client/components/` |
+| Vite config | `app/vite.config.ts` |
 
 ## Data Flow
 
-1. **Import**: `journal.py import` parses E*TRADE CSV → `executions` table
+1. **Import**: Upload CSV via `/api/import` → parse E*TRADE format → `executions` table
 2. **Match**: FIFO algorithm matches buys/sells → `round_trips` table with P/L
 3. **Aggregate**: Daily stats calculated → `daily_summary` table
-4. **Display**: Next.js reads SQLite directly via `better-sqlite3`
+4. **Display**: React frontend fetches from Hono API routes
 
 ## Database
 
 SQLite at `data/journal.db`. Key tables:
 - `executions` - Raw broker orders
-- `round_trips` - Matched trades with P/L and metadata (setup_type, notes, etc.)
+- `round_trips` - Matched trades with P/L and metadata
 - `daily_summary` - Aggregated daily statistics
 
 Pre-calculated views: `v_performance_by_setup`, `v_performance_by_time`, `v_performance_by_regime`, `v_performance_by_weekday`, `v_equity_curve`, `v_mistakes`, `v_losses_detail`, `v_performance_by_hour`, `v_performance_by_session`, `v_performance_by_underlying`, `v_loss_patterns_by_hour`, `v_loss_patterns_by_day`, `v_hold_time_comparison`
 
 ## Tech Stack
 
-**Frontend**: Next.js 16, React 19, TypeScript (strict), Tailwind CSS 4, shadcn/ui (new-york), Recharts, better-sqlite3
-
-**Backend**: Python 3 (stdlib only - no deps), sqlite3
-
-**Deploy**: Docker multi-stage build, GitHub Actions → GHCR, Coolify
+**Runtime**: Bun (built-in SQLite via bun:sqlite)
+**API**: Hono
+**Frontend**: Vite, React 19, TypeScript (strict), Tailwind CSS 4, shadcn/ui, Recharts
+**Deploy**: Docker (oven/bun:1-alpine), GitHub Actions → GHCR, Coolify
 
 ## Code Patterns
 
-- Python CLI uses pure stdlib (no external deps) for portability
-- OCC options symbol parsing: `parse_occ_symbol()` handles E*TRADE format (e.g., `QQQ---260205C00609000`)
+- Single Bun process serves API + static frontend in production
+- OCC options symbol parsing in `parseOccSymbol()` (e.g., `QQQ---260205C00609000`)
 - Database auto-initializes schema on first connection
 - Imports are idempotent via `INSERT OR IGNORE` with unique constraints
-- Frontend uses server-side SQLite (read-only in API routes)
-- Path alias: `@/*` → `frontend/src/*`
+- Path alias: `@/*` → `app/src/client/*`

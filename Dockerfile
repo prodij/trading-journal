@@ -1,46 +1,27 @@
-# Single-stage build to avoid native module issues
-FROM node:24-alpine
-
+# Build stage: install all deps + build frontend
+FROM oven/bun:1-alpine AS build
 WORKDIR /app
 
-ENV NODE_ENV=production
+COPY app/package.json app/bun.lock* ./
+RUN bun install --frozen-lockfile
 
-# Install build dependencies for better-sqlite3
-RUN apk add --no-cache python3 make g++ libstdc++
+COPY app/ .
+RUN bunx vite build
 
-# Install pnpm
-RUN corepack enable && corepack prepare pnpm@latest --activate
+# Production stage: only runtime deps
+FROM oven/bun:1-alpine
+WORKDIR /app
 
-# Create non-root user
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 nextjs
+COPY app/package.json app/bun.lock* ./
+RUN bun install --frozen-lockfile --production
 
-# Copy package files
-COPY frontend/package.json frontend/pnpm-lock.yaml ./
+COPY --from=build /app/dist ./dist
+COPY app/src/server ./src/server
+COPY app/schema.sql ./schema.sql
 
-# Install dependencies
-RUN pnpm install --frozen-lockfile
-
-# Explicitly rebuild better-sqlite3 native module
-RUN cd node_modules/.pnpm/better-sqlite3@*/node_modules/better-sqlite3 && npm run build-release
-
-# Copy source
-COPY frontend/ .
-
-# Build
-RUN pnpm build
-
-# Create data directory
-RUN mkdir -p /app/data && chown -R nextjs:nodejs /app/data
-
-# Set permissions
-RUN chown -R nextjs:nodejs /app
-
-USER nextjs
+RUN mkdir -p /app/data
 
 EXPOSE 3000
-
 ENV PORT=3000
-ENV HOSTNAME="0.0.0.0"
 
-CMD ["node_modules/.bin/next", "start"]
+CMD ["bun", "run", "src/server/index.ts"]
