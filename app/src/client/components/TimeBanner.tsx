@@ -1,30 +1,20 @@
 import { useEffect, useState } from "react";
 
+const PST_FORMATTER = new Intl.DateTimeFormat('en-US', {
+  dateStyle: 'full',
+  timeStyle: 'long',
+  timeZone: 'America/Los_Angeles',
+});
+
+function getPstTime(): string {
+  return PST_FORMATTER.format(new Date());
+}
+
 export default function TimeBanner() {
-  const [display, setDisplay] = useState<string>("");
+  const [display, setDisplay] = useState<string>(getPstTime);
 
   useEffect(() => {
-    // Fetch server time once on mount
-    (async () => {
-      try {
-        const res = await fetch("/api/server-time");
-        if (res.ok) {
-          const data = await res.json();
-          setDisplay(`${data.locale} (${data.timezone})`);
-        }
-      } catch {
-        // ignore and fallback to client time
-      }
-    })();
-
-    // Update client time every second as fallback
-    const id = setInterval(() => {
-      setDisplay((prev) => {
-        // Only use client time if server time hasn't loaded yet
-        if (!prev || prev === "") return new Date().toLocaleString();
-        return prev;
-      });
-    }, 1000);
+    const id = setInterval(() => setDisplay(getPstTime()), 1000);
     return () => clearInterval(id);
   }, []);
 

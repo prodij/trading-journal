@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
@@ -12,8 +12,11 @@ import {
 } from '@/components/ui/chart';
 import { Area, AreaChart, Bar, BarChart, XAxis, YAxis, CartesianGrid, Cell } from 'recharts';
 import { ImportButton } from '@/components/ImportButton';
+import { PasteImportDialog } from '@/components/PasteImportDialog';
 import { TradeEditModal } from '@/components/TradeEditModal';
 import TimeBanner from '@/components/TimeBanner';
+import { useTheme } from '@/hooks/useTheme';
+import { Moon, Sun, Monitor } from 'lucide-react';
 
 interface Trade {
   id: number;
@@ -26,6 +29,9 @@ interface Trade {
   exit_price: number;
   net_pnl: number;
   setup_type: string | null;
+  entry_time: string | null;
+  exit_time: string | null;
+  hold_time_minutes: number | null;
 }
 
 interface DailySummary {
@@ -87,6 +93,30 @@ interface LossPatterns {
 interface LossesData {
   losses: LossDetail[];
   patterns: LossPatterns;
+}
+
+interface WinDetail {
+  id: number;
+  date: string;
+  underlying: string;
+  entry_time: string | null;
+  hold_time_minutes: number | null;
+  net_pnl: number;
+  day_of_week: string;
+  entry_hour: number | null;
+}
+
+interface WinPatterns {
+  byHour: { hour: number; win_count: number; total_gain: number }[];
+  byDay: { day_of_week: string; win_count: number; total_gain: number }[];
+  holdTime: { category: string; avg_hold_time: number; trade_count: number }[];
+  bestHour: { hour: number; total_gain: number } | null;
+  bestDay: { day_of_week: string; total_gain: number } | null;
+}
+
+interface WinsData {
+  wins: WinDetail[];
+  patterns: WinPatterns;
 }
 
 interface HourlyPerformance {
@@ -190,6 +220,21 @@ const symbolChartConfig = {
   },
 } satisfies ChartConfig;
 
+const SETUP_TYPES = [
+  'pullback', 'breakout', 'reversal', 'scalp', 'gamma_scalp',
+  'earnings_play', 'trend_follow', 'mean_reversion', 'support_bounce', 'resistance_fade',
+];
+
+/** Convert stored EST time (HH:MM:SS) to PST 12h format. */
+function formatEstToPst(time: string): string {
+  const [h, m] = time.split(':');
+  let hour = parseInt(h) - 3; // EST -> PST
+  if (hour < 0) hour += 24;
+  const ampm = hour >= 12 ? 'PM' : 'AM';
+  const h12 = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+  return `${h12}:${m} PST`;
+}
+
 export default function App() {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [summaries, setSummaries] = useState<DailySummary[]>([]);
@@ -197,21 +242,24 @@ export default function App() {
   const [setups, setSetups] = useState<SetupPerf[]>([]);
   const [equity, setEquity] = useState<EquityPoint[]>([]);
   const [lossesData, setLossesData] = useState<LossesData | null>(null);
+  const [winsData, setWinsData] = useState<WinsData | null>(null);
   const [timeData, setTimeData] = useState<TimeData | null>(null);
   const [symbolData, setSymbolData] = useState<SymbolData | null>(null);
   const [edgeData, setEdgeData] = useState<EdgeData | null>(null);
   const [loading, setLoading] = useState(true);
   const [editTradeId, setEditTradeId] = useState<number | null>(null);
   const [editOpen, setEditOpen] = useState(false);
+  const { theme, toggle: toggleTheme } = useTheme();
 
   async function refreshData() {
     try {
-      const [tradesRes, statsRes, setupsRes, equityRes, lossesRes, timeRes, symbolRes, edgeRes] = await Promise.all([
+      const [tradesRes, statsRes, setupsRes, equityRes, lossesRes, winsRes, timeRes, symbolRes, edgeRes] = await Promise.all([
         fetch('/api/trades'),
         fetch('/api/stats'),
         fetch('/api/setups'),
         fetch('/api/equity'),
         fetch('/api/losses'),
+        fetch('/api/wins'),
         fetch('/api/time-performance'),
         fetch('/api/symbol-performance'),
         fetch('/api/edge'),
@@ -222,6 +270,7 @@ export default function App() {
       const setupsData = await setupsRes.json();
       const equityData = await equityRes.json();
       const lossesJson = await lossesRes.json();
+      const winsJson = await winsRes.json();
       const timeJson = await timeRes.json();
       const symbolJson = await symbolRes.json();
       const edgeJson = await edgeRes.json();
@@ -232,6 +281,7 @@ export default function App() {
       setSetups(setupsData.setups || []);
       setEquity(equityData.equity || []);
       setLossesData(lossesJson);
+      setWinsData(winsJson);
       setTimeData(timeJson);
       setSymbolData(symbolJson);
       setEdgeData(edgeJson);
@@ -270,10 +320,20 @@ export default function App() {
               <h1 className="text-3xl font-bold">Trading Journal</h1>
               <p className="text-muted-foreground">Track, analyze, improve</p>
             </div>
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={toggleTheme}
+                className="inline-flex items-center justify-center rounded-md border border-border bg-background hover:bg-accent h-9 w-9 transition-colors"
+                title={`Theme: ${theme}`}
+              >
+                {theme === 'dark' && <Moon className="size-4" />}
+                {theme === 'light' && <Sun className="size-4" />}
+                {theme === 'system' && <Monitor className="size-4" />}
+              </button>
               <ImportButton onImportComplete={refreshData} />
-              <Badge variant={stats && stats.net_pnl >= 0 ? "default" : "destructive"} className="text-lg px-4 py-2">
-                {stats ? `$${stats.net_pnl.toFixed(2)}` : '$0.00'} (30d)
+              <PasteImportDialog onImportComplete={refreshData} />
+              <Badge variant={stats && (stats.net_pnl ?? 0) >= 0 ? "default" : "destructive"} className="text-lg px-4 py-2">
+                {stats ? `$${(stats.net_pnl ?? 0).toFixed(2)}` : '$0.00'} (30d)
               </Badge>
             </div>
           </div>
@@ -283,8 +343,8 @@ export default function App() {
             <Card>
               <CardHeader className="pb-2">
                 <CardDescription>Net P/L (30d)</CardDescription>
-                <CardTitle className={`text-2xl ${stats && stats.net_pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                  ${stats?.net_pnl.toFixed(2) || '0.00'}
+                <CardTitle className={`text-2xl ${stats && (stats.net_pnl ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                  ${stats?.net_pnl?.toFixed(2) ?? '0.00'}
                 </CardTitle>
               </CardHeader>
             </Card>
@@ -303,8 +363,8 @@ export default function App() {
             <Card>
               <CardHeader className="pb-2">
                 <CardDescription>Avg Daily P/L</CardDescription>
-                <CardTitle className={`text-2xl ${stats && stats.avg_daily >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                  ${stats?.avg_daily.toFixed(2) || '0.00'}
+                <CardTitle className={`text-2xl ${stats && (stats.avg_daily ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                  ${stats?.avg_daily?.toFixed(2) ?? '0.00'}
                 </CardTitle>
               </CardHeader>
             </Card>
@@ -315,6 +375,7 @@ export default function App() {
             <TabsList>
               <TabsTrigger value="overview">Overview</TabsTrigger>
               <TabsTrigger value="edge">Edge Finder</TabsTrigger>
+              <TabsTrigger value="wins">Wins</TabsTrigger>
               <TabsTrigger value="losses">Losses</TabsTrigger>
               <TabsTrigger value="time">Time</TabsTrigger>
               <TabsTrigger value="symbols">Symbols</TabsTrigger>
@@ -618,6 +679,108 @@ export default function App() {
                   </CardContent>
                 </Card>
               )}
+            </TabsContent>
+
+            {/* Wins Tab */}
+            <TabsContent value="wins" className="space-y-4">
+              {/* Pattern Detection Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardDescription>Best Time</CardDescription>
+                    <CardTitle className="text-xl text-green-600">
+                      {winsData?.patterns.bestHour
+                        ? `${winsData.patterns.bestHour.hour}:00`
+                        : 'N/A'}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-sm text-muted-foreground">
+                      {winsData?.patterns.bestHour
+                        ? `+$${winsData.patterns.bestHour.total_gain.toFixed(2)} total gains`
+                        : 'No time data available'}
+                    </p>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardDescription>Best Day</CardDescription>
+                    <CardTitle className="text-xl text-green-600">
+                      {winsData?.patterns.bestDay?.day_of_week || 'N/A'}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-sm text-muted-foreground">
+                      {winsData?.patterns.bestDay
+                        ? `+$${winsData.patterns.bestDay.total_gain.toFixed(2)} total gains`
+                        : 'No day data available'}
+                    </p>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardDescription>Hold Time</CardDescription>
+                    <CardTitle className="text-xl">
+                      {winsData?.patterns.holdTime.find(h => h.category === 'winners')?.avg_hold_time || 0} min
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-sm text-muted-foreground">
+                      Winners avg vs{' '}
+                      {winsData?.patterns.holdTime.find(h => h.category === 'losers')?.avg_hold_time || 0} min losers
+                    </p>
+                    {winsData?.patterns.holdTime &&
+                     (winsData.patterns.holdTime.find(h => h.category === 'winners')?.avg_hold_time || 0) <
+                     (winsData.patterns.holdTime.find(h => h.category === 'losers')?.avg_hold_time || 0) && (
+                      <Badge className="mt-2 bg-green-600">Cutting winners quickly</Badge>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Biggest Winners Table */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Biggest Winners</CardTitle>
+                  <CardDescription>Your best trades - repeat these patterns</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {winsData && winsData.wins.length > 0 ? (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Date</TableHead>
+                          <TableHead>Symbol</TableHead>
+                          <TableHead>Entry Time</TableHead>
+                          <TableHead>Hold Time</TableHead>
+                          <TableHead>Day</TableHead>
+                          <TableHead className="text-right">P/L</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {winsData.wins.map((win) => (
+                          <TableRow key={win.id}>
+                            <TableCell>{win.date}</TableCell>
+                            <TableCell className="font-medium">{win.underlying}</TableCell>
+                            <TableCell>{win.entry_time || '\u2014'}</TableCell>
+                            <TableCell>
+                              {win.hold_time_minutes ? `${win.hold_time_minutes} min` : '\u2014'}
+                            </TableCell>
+                            <TableCell>{win.day_of_week}</TableCell>
+                            <TableCell className="text-right text-green-600 font-medium">
+                              +${win.net_pnl.toFixed(2)}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  ) : (
+                    <p className="text-muted-foreground text-center py-8">No winning trades found</p>
+                  )}
+                </CardContent>
+              </Card>
             </TabsContent>
 
             {/* Losses Tab */}
@@ -965,6 +1128,7 @@ export default function App() {
                     <TableHeader>
                       <TableRow>
                         <TableHead>Date</TableHead>
+                        <TableHead>Time</TableHead>
                         <TableHead>Contract</TableHead>
                         <TableHead>Qty</TableHead>
                         <TableHead>Entry</TableHead>
@@ -977,6 +1141,9 @@ export default function App() {
                       {trades.map((trade) => (
                         <TableRow key={trade.id} className="cursor-pointer hover:bg-muted/50" onClick={() => { setEditTradeId(trade.id); setEditOpen(true); }}>
                           <TableCell>{trade.date}</TableCell>
+                          <TableCell className="text-muted-foreground text-xs font-mono">
+                            {trade.entry_time ? formatEstToPst(trade.entry_time) : '\u2014'}
+                          </TableCell>
                           <TableCell className="font-mono">
                             ${trade.strike} {trade.option_type}
                           </TableCell>
@@ -986,12 +1153,25 @@ export default function App() {
                           <TableCell className={trade.net_pnl >= 0 ? 'text-green-600' : 'text-red-600'}>
                             ${trade.net_pnl.toFixed(2)}
                           </TableCell>
-                          <TableCell>
-                            {trade.setup_type ? (
-                              <Badge variant="outline">{trade.setup_type}</Badge>
-                            ) : (
-                              <span className="text-muted-foreground">{'\u2014'}</span>
-                            )}
+                          <TableCell onClick={(e) => e.stopPropagation()}>
+                            <select
+                              value={trade.setup_type || ''}
+                              onChange={async (e) => {
+                                const value = e.target.value || null;
+                                await fetch(`/api/trades/${trade.id}`, {
+                                  method: 'PATCH',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ fields: { setup_type: value } }),
+                                });
+                                refreshData();
+                              }}
+                              className="h-7 rounded-md border border-border bg-background px-1.5 text-xs cursor-pointer hover:border-foreground/30 focus:outline-none focus:ring-1 focus:ring-ring"
+                            >
+                              <option value="">—</option>
+                              {SETUP_TYPES.map((s) => (
+                                <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>
+                              ))}
+                            </select>
                           </TableCell>
                         </TableRow>
                       ))}

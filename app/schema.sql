@@ -376,6 +376,53 @@ FROM v_losses_detail
 GROUP BY day_of_week_num
 ORDER BY total_loss ASC;
 
+-- Wins with time breakdown (for pattern detection)
+CREATE VIEW IF NOT EXISTS v_wins_detail AS
+SELECT
+  id,
+  date,
+  underlying,
+  entry_time,
+  exit_time,
+  hold_time_minutes,
+  net_pnl,
+  CASE CAST(strftime('%w', date) AS INTEGER)
+    WHEN 0 THEN 'Sunday'
+    WHEN 1 THEN 'Monday'
+    WHEN 2 THEN 'Tuesday'
+    WHEN 3 THEN 'Wednesday'
+    WHEN 4 THEN 'Thursday'
+    WHEN 5 THEN 'Friday'
+    WHEN 6 THEN 'Saturday'
+  END as day_of_week,
+  CAST(strftime('%w', date) AS INTEGER) as day_of_week_num,
+  CAST(strftime('%H', entry_time) AS INTEGER) as entry_hour
+FROM round_trips
+WHERE net_pnl > 0
+ORDER BY net_pnl DESC;
+
+-- Win patterns aggregated by hour
+CREATE VIEW IF NOT EXISTS v_win_patterns_by_hour AS
+SELECT
+  entry_hour as hour,
+  COUNT(*) as win_count,
+  ROUND(SUM(net_pnl), 2) as total_gain
+FROM v_wins_detail
+WHERE entry_hour IS NOT NULL
+GROUP BY entry_hour
+ORDER BY total_gain DESC;
+
+-- Win patterns aggregated by day of week
+CREATE VIEW IF NOT EXISTS v_win_patterns_by_day AS
+SELECT
+  day_of_week,
+  day_of_week_num,
+  COUNT(*) as win_count,
+  ROUND(SUM(net_pnl), 2) as total_gain
+FROM v_wins_detail
+GROUP BY day_of_week_num
+ORDER BY total_gain DESC;
+
 -- Hold time comparison: winners vs losers
 CREATE VIEW IF NOT EXISTS v_hold_time_comparison AS
 SELECT

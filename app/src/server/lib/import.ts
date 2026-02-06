@@ -59,6 +59,22 @@ export function parseOccSymbol(symbol: string): ParsedOccSymbol | null {
 }
 
 /**
+ * Build OCC option symbol from components.
+ * Inverse of parseOccSymbol().
+ * Example: buildOccSymbol('QQQ', '2026-02-05', 'Call', 609) → 'QQQ---260205C00609000'
+ */
+export function buildOccSymbol(underlying: string, expiration: string, optionType: 'Call' | 'Put', strike: number): string {
+  const [yearStr, month, day] = expiration.split('-');
+  const yy = yearStr.slice(2);
+  const dateStr = `${yy}${month}${day}`;
+  const typeChar = optionType === 'Call' ? 'C' : 'P';
+  const strikeInt = Math.round(strike * 1000);
+  const strikePadded = String(strikeInt).padStart(8, '0');
+  const padding = '-'.repeat(Math.max(0, 6 - underlying.length));
+  return `${underlying}${padding}${dateStr}${typeChar}${strikePadded}`;
+}
+
+/**
  * Parse date from MM/DD/YY to YYYY-MM-DD.
  */
 export function parseTradeDate(dateStr: string): string {
@@ -199,6 +215,7 @@ interface ExecutionRow {
   price: number;
   amount: number;
   commission: number;
+  time: string | null;
 }
 
 interface ContractKey {
@@ -227,14 +244,14 @@ export function calculateRoundTrips(db: Database, tradeDate: string): void {
 
     // Get buys ordered by id (FIFO)
     const buys = db.query<ExecutionRow, [string, string, string, number, string]>(`
-      SELECT id, quantity, price, amount, commission FROM executions
+      SELECT id, quantity, price, amount, commission, time FROM executions
       WHERE date = ? AND underlying = ? AND expiration = ? AND strike = ? AND option_type = ?
       AND transaction_type = 'Bought' ORDER BY id
     `).all(tradeDate, underlying, expiration, strike, option_type);
 
     // Get sells ordered by id
     const sells = db.query<ExecutionRow, [string, string, string, number, string]>(`
-      SELECT id, quantity, price, amount, commission FROM executions
+      SELECT id, quantity, price, amount, commission, time FROM executions
       WHERE date = ? AND underlying = ? AND expiration = ? AND strike = ? AND option_type = ?
       AND transaction_type = 'Sold' ORDER BY id
     `).all(tradeDate, underlying, expiration, strike, option_type);
@@ -247,13 +264,15 @@ export function calculateRoundTrips(db: Database, tradeDate: string): void {
     let buyPrice = buys[0].price;
     let buyAmountPer = buys[0].amount / buys[0].quantity;
     let buyCommPer = buys[0].commission / buys[0].quantity;
+    let buyTime = buys[0].time;
 
     const insertRoundTrip = db.query(`
       INSERT INTO round_trips
       (date, underlying, expiration, strike, option_type, direction,
        quantity, entry_price, exit_price, entry_amount, exit_amount,
-       gross_pnl, net_pnl, commission_total, pnl_percent)
-      VALUES (?, ?, ?, ?, ?, 'Long', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       gross_pnl, net_pnl, commission_total, pnl_percent,
+       entry_time, exit_time, hold_time_minutes)
+      VALUES (?, ?, ?, ?, ?, 'Long', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     for (const sell of sells) {
@@ -261,6 +280,7 @@ export function calculateRoundTrips(db: Database, tradeDate: string): void {
       const sellPrice = sell.price;
       const sellAmountPer = sell.amount / sell.quantity;
       const sellCommPer = sell.commission / sell.quantity;
+      const sellTime = sell.time;
 
       while (remaining > 0 && buyIdx < buys.length) {
         const matchQty = Math.min(remaining, buyRemaining);
@@ -271,11 +291,21 @@ export function calculateRoundTrips(db: Database, tradeDate: string): void {
           const totalComm = (buyCommPer + sellCommPer) * matchQty;
           const pnlPct = buyPrice !== 0 ? ((sellPrice / buyPrice) - 1) * 100 : 0;
 
+          // Calculate hold time from entry/exit times
+          let holdTimeMinutes: number | null = null;
+          if (buyTime && sellTime) {
+            const [bH, bM] = buyTime.split(':').map(Number);
+            const [sH, sM] = sellTime.split(':').map(Number);
+            holdTimeMinutes = (sH * 60 + sM) - (bH * 60 + bM);
+            if (holdTimeMinutes < 0) holdTimeMinutes = null;
+          }
+
           insertRoundTrip.run(
             tradeDate, underlying, expiration, strike, option_type,
             matchQty, buyPrice, sellPrice,
             Math.abs(buyAmountPer * matchQty), sellAmountPer * matchQty,
             grossPnl, netPnl, totalComm, pnlPct,
+            buyTime, sellTime, holdTimeMinutes,
           );
         }
 
@@ -289,6 +319,7 @@ export function calculateRoundTrips(db: Database, tradeDate: string): void {
             buyPrice = buys[buyIdx].price;
             buyAmountPer = buys[buyIdx].amount / buys[buyIdx].quantity;
             buyCommPer = buys[buyIdx].commission / buys[buyIdx].quantity;
+            buyTime = buys[buyIdx].time;
           }
         }
       }

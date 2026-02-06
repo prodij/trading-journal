@@ -142,6 +142,16 @@ export interface HoldTimeComparison {
   trade_count: number;
 }
 
+export type WinDetail = LossDetail;
+
+export interface WinPattern {
+  hour?: number;
+  day_of_week?: string;
+  day_of_week_num?: number;
+  win_count: number;
+  total_gain: number;
+}
+
 // ── Query functions ─────────────────────────────────────────────────────────
 
 export function getTrades(date?: string): Trade[] {
@@ -296,6 +306,27 @@ export function getHoldTimeComparison(): HoldTimeComparison[] {
   return db.query(`
     SELECT * FROM v_hold_time_comparison
   `).all() as HoldTimeComparison[];
+}
+
+export function getBiggestWins(limit: number = 20): WinDetail[] {
+  const db = getDb();
+  return db.query(`
+    SELECT * FROM v_wins_detail LIMIT ?
+  `).all(limit) as WinDetail[];
+}
+
+export function getWinPatternsByHour(): WinPattern[] {
+  const db = getDb();
+  return db.query(`
+    SELECT * FROM v_win_patterns_by_hour
+  `).all() as WinPattern[];
+}
+
+export function getWinPatternsByDay(): WinPattern[] {
+  const db = getDb();
+  return db.query(`
+    SELECT * FROM v_win_patterns_by_day
+  `).all() as WinPattern[];
 }
 
 export function getTradeById(id: number): TradeDetail | undefined {

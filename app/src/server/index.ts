@@ -2,11 +2,13 @@ import { Hono } from 'hono';
 import { serveStatic } from 'hono/bun';
 import { cors } from 'hono/cors';
 import importRoute from './routes/import';
+import pasteImportRoute from './routes/paste-import';
 import tradesRoute from './routes/trades';
 import statsRoute from './routes/stats';
 import equityRoute from './routes/equity';
 import setupsRoute from './routes/setups';
 import lossesRoute from './routes/losses';
+import winsRoute from './routes/wins';
 import timePerformanceRoute from './routes/time-performance';
 import symbolPerformanceRoute from './routes/symbol-performance';
 import healthRoute from './routes/health';
@@ -20,12 +22,14 @@ app.use('/api/*', cors());
 
 // API routes
 app.route('/api/health', healthRoute);
+app.route('/api/import/paste', pasteImportRoute);
 app.route('/api/import', importRoute);
 app.route('/api/trades', tradesRoute);
 app.route('/api/stats', statsRoute);
 app.route('/api/equity', equityRoute);
 app.route('/api/setups', setupsRoute);
 app.route('/api/losses', lossesRoute);
+app.route('/api/wins', winsRoute);
 app.route('/api/time-performance', timePerformanceRoute);
 app.route('/api/symbol-performance', symbolPerformanceRoute);
 app.route('/api/edge', edgeRoute);

@@ -27,6 +27,16 @@ bun run start            # Production server
 Run both dev and dev:server together for local development. Vite proxies /api/* to the Hono server.
 
 ### Docker
+
+**Development (hot reload):**
+```bash
+docker-compose -f docker-compose.dev.yml up --build -d   # First time / after dependency changes
+docker-compose -f docker-compose.dev.yml logs             # Check logs
+docker-compose -f docker-compose.dev.yml down             # Stop
+```
+Source is volume-mounted — edits to `app/src/` and `app/schema.sql` hot-reload automatically (Vite HMR for frontend, `bun --watch` for server). No rebuild needed for code changes.
+
+**Production:**
 ```bash
 docker-compose up --build   # Full stack on http://localhost:4000
 ```
@@ -59,7 +69,7 @@ SQLite at `data/journal.db`. Key tables:
 - `round_trips` - Matched trades with P/L and metadata
 - `daily_summary` - Aggregated daily statistics
 
-Pre-calculated views: `v_performance_by_setup`, `v_performance_by_time`, `v_performance_by_regime`, `v_performance_by_weekday`, `v_equity_curve`, `v_mistakes`, `v_losses_detail`, `v_performance_by_hour`, `v_performance_by_session`, `v_performance_by_underlying`, `v_loss_patterns_by_hour`, `v_loss_patterns_by_day`, `v_hold_time_comparison`
+Pre-calculated views: `v_performance_by_setup`, `v_performance_by_time`, `v_performance_by_regime`, `v_performance_by_weekday`, `v_equity_curve`, `v_mistakes`, `v_losses_detail`, `v_performance_by_hour`, `v_performance_by_session`, `v_performance_by_underlying`, `v_loss_patterns_by_hour`, `v_loss_patterns_by_day`, `v_hold_time_comparison`, `v_wins_detail`, `v_win_patterns_by_hour`, `v_win_patterns_by_day`
 
 ## Tech Stack
 

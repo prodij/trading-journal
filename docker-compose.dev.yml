@@ -1,0 +1,14 @@
+services:
+  trading-journal:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./app/src:/app/src
+      - ./app/schema.sql:/app/schema.sql
+      - ./data:/app/data
+    environment:
+      - PORT=3000
+    restart: unless-stopped
